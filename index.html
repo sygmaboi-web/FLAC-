@@ -23,8 +23,13 @@
         
         <div class="upload-container">
             <p>Tambah Lagu Baru</p>
-            <input type="file" id="fileInput" accept="audio/*">
-            <button onclick="uploadSong()" id="uploadBtn">Upload ke Supabase</button>
+            <label for="fileInput" class="file-picker-label">
+                <i class="fas fa-cloud-arrow-up"></i>
+                <span>Pilih Audio (Bisa Banyak)</span>
+            </label>
+            <input type="file" id="fileInput" accept="audio/*" multiple>
+            <p id="selectedFilesText" class="status-text">Belum ada file dipilih.</p>
+            <button onclick="uploadSong()" id="uploadBtn"><i class="fas fa-upload"></i> Upload ke Supabase</button>
             <p id="uploadStatus" class="status-text"></p>
         </div>
     </div>
@@ -86,6 +91,29 @@
             <i class="fas fa-volume-low"></i>
             <input type="range" id="volumeBar" min="0" max="100" value="100">
         </div>
+    </div>
+
+    <div class="equalizer-panel">
+        <h3><i class="fas fa-sliders"></i> Equalizer</h3>
+        <div class="eq-controls">
+            <label>Bass
+                <input type="range" id="eqBass" min="-12" max="12" value="0" step="1">
+                <span id="eqBassValue">0 dB</span>
+            </label>
+            <label>Mid
+                <input type="range" id="eqMid" min="-12" max="12" value="0" step="1">
+                <span id="eqMidValue">0 dB</span>
+            </label>
+            <label>Treble
+                <input type="range" id="eqTreble" min="-12" max="12" value="0" step="1">
+                <span id="eqTrebleValue">0 dB</span>
+            </label>
+            <label>Output
+                <input type="range" id="eqGain" min="-12" max="12" value="0" step="1">
+                <span id="eqGainValue">0 dB</span>
+            </label>
+        </div>
+        <button id="eqResetBtn" type="button">Reset EQ</button>
     </div>
 
     <audio id="audioPlayer" preload="metadata"></audio>
