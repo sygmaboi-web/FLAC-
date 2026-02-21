@@ -36,6 +36,7 @@ const initialState = {
     preamp: 0,
     bands: [0, 0, 0, 0, 0, 0, 0, 0, 0]
   },
+  eqPanelOpen: false,
   notices: []
 };
 
@@ -80,3 +81,4 @@ export const resetState = () => {
   state = structuredClone(initialState);
   listeners.forEach(listener => listener(state));
 };
+
