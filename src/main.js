@@ -18,20 +18,83 @@ import { renderShareView } from './views/shareView.js';
 
 const root = document.getElementById('app');
 const SETTINGS_KEY = 'kingpin:audio-settings:v1';
-const DEFAULT_EQ = { enabled: true, preamp: 0, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0] };
+const DEFAULT_EQ = {
+  enabled: true,
+  preamp: 0,
+  bands: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+  fx: { clarity: 0, ambience: 0, surround: 0, dynamic: 0, bass: 0 }
+};
 
 let uploadedFiles = [];
 let uploadCursor = -1;
 let currentUploadMetadata = null;
 let currentUploadFile = null;
 const recentLogTsBySong = new Map();
+let eqDragState = null;
 
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const normalizeEq = eq => ({
   enabled: typeof eq?.enabled === 'boolean' ? eq.enabled : true,
   preamp: clamp(Number(eq?.preamp) || 0, -12, 12),
-  bands: DEFAULT_EQ.bands.map((_, i) => clamp(Number(eq?.bands?.[i]) || 0, -12, 12))
+  bands: DEFAULT_EQ.bands.map((_, i) => clamp(Number(eq?.bands?.[i]) || 0, -12, 12)),
+  fx: {
+    clarity: clamp(Number(eq?.fx?.clarity) || 0, 0, 100),
+    ambience: clamp(Number(eq?.fx?.ambience) || 0, 0, 100),
+    surround: clamp(Number(eq?.fx?.surround) || 0, 0, 100),
+    dynamic: clamp(Number(eq?.fx?.dynamic) || 0, 0, 100),
+    bass: clamp(Number(eq?.fx?.bass) || 0, 0, 100)
+  }
 });
+
+const EQ_GRAPH = { width: 520, height: 140, padX: 16, padY: 14 };
+
+const buildEqPoints = bands => {
+  const padX = EQ_GRAPH.padX;
+  const padY = EQ_GRAPH.padY;
+  const usableW = EQ_GRAPH.width - padX * 2;
+  const usableH = EQ_GRAPH.height - padY * 2;
+  return bands.map((value, index) => {
+    const x = padX + (usableW * index) / (bands.length - 1);
+    const normalized = (Number(value) + 12) / 24;
+    const y = padY + usableH - usableH * normalized;
+    return { x, y };
+  });
+};
+
+const updateEqGraphDom = eqState => {
+  const svg = document.querySelector('.eq-graph');
+  if (!svg) return;
+  const points = buildEqPoints(eqState.bands);
+  const polyline = svg.querySelector('.eq-graph-line');
+  if (polyline) {
+    polyline.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+  }
+  const dots = svg.querySelectorAll('.eq-graph-dot');
+  dots.forEach((dot, index) => {
+    const point = points[index];
+    if (!point) return;
+    dot.setAttribute('cx', point.x);
+    dot.setAttribute('cy', point.y);
+  });
+};
+
+const updateEqBandFromPointer = event => {
+  if (!eqDragState) return;
+  const { rect, bandCount } = eqDragState;
+  const x = clamp(event.clientX - rect.left, 0, rect.width);
+  const y = clamp(event.clientY - rect.top, 0, rect.height);
+  const index = clamp(Math.round((x / rect.width) * (bandCount - 1)), 0, bandCount - 1);
+  const normalized = 1 - y / rect.height;
+  const value = clamp(Math.round((-12 + normalized * 24) * 2) / 2, -12, 12);
+
+  updateState(prev => {
+    const bands = [...prev.eqState.bands];
+    bands[index] = value;
+    return { ...prev, eqState: { ...prev.eqState, bands } };
+  });
+  audioEngine.setEqState(getState().eqState);
+  updateEqGraphDom(getState().eqState);
+};
 
 const readSettingsMap = () => {
   try {
@@ -68,6 +131,7 @@ const applySettings = payload => {
     player: { ...prev.player, crossfadeSeconds, volume }
   }));
   audioEngine.setEqState(eqState);
+  audioEngine.setFxState(eqState.fx);
   audioEngine.setEqEnabled(eqState.enabled);
   audioEngine.setCrossfadeSeconds(crossfadeSeconds);
   audioEngine.setVolume(volume);
@@ -670,6 +734,16 @@ const handlers = {
     audioEngine.setEqEnabled(enabled);
     updateState(prev => ({ ...prev, eqState: { ...prev.eqState, enabled } }));
   },
+  'fx-control': (event, el) => {
+    const key = el.getAttribute('data-fx-key');
+    if (!key) return;
+    const value = Number(event.target.value);
+    updateState(prev => ({
+      ...prev,
+      eqState: { ...prev.eqState, fx: { ...prev.eqState.fx, [key]: value } }
+    }));
+    audioEngine.setFxState(getState().eqState.fx);
+  },
   'toggle-eq-panel': () => {
     updateState(prev => ({ ...prev, eqPanelOpen: !prev.eqPanelOpen }));
     render();
@@ -690,6 +764,13 @@ const handlers = {
     audioEngine.setEqState(getState().eqState);
     render();
   },
+  'eq-graph': (event, el) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const rect = el.getBoundingClientRect();
+    eqDragState = { rect, bandCount: getState().eqState.bands.length };
+    el.setPointerCapture?.(event.pointerId);
+    updateEqBandFromPointer(event);
+  },
   'save-eq': () => {
     saveCurrentSettings();
     pushNotice('success', 'EQ and audio settings saved.');
@@ -701,6 +782,18 @@ const handlers = {
     render();
   }
 };
+
+window.addEventListener('pointermove', event => {
+  if (!eqDragState) return;
+  updateEqBandFromPointer(event);
+});
+
+const clearEqDrag = () => {
+  eqDragState = null;
+};
+
+window.addEventListener('pointerup', clearEqDrag);
+window.addEventListener('pointercancel', clearEqDrag);
 
 const render = () => {
   const state = getState();
@@ -809,5 +902,6 @@ bootstrap().catch(error => {
   console.error(error);
   root.innerHTML = `<div class="app-error"><h1>App failed to start</h1><p>${error.message || 'Unknown error'}</p></div>`;
 });
+
 
 
