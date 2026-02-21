@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KingPin Music (Drive-ify)</title>
+    <title>KingPin Music (Supabase FLAC)</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -14,9 +14,9 @@
             <i class="fab fa-spotify"></i> KingPin Music
         </div>
         <ul class="nav-links">
-            <li class="active" onclick="switchMenu('home')"><i class="fas fa-home"></i> Home</li>
-            <li onclick="switchMenu('search')"><i class="fas fa-search"></i> Search</li>
-            <li onclick="switchMenu('library')"><i class="fas fa-book-open"></i> Your Library</li>
+            <li class="active" onclick="switchMenu('home', this)"><i class="fas fa-home"></i> Home</li>
+            <li onclick="switchMenu('search', this)"><i class="fas fa-search"></i> Search</li>
+            <li onclick="switchMenu('library', this)"><i class="fas fa-book-open"></i> Your Library</li>
         </ul>
         
         <div class="sidebar-divider"></div>
@@ -24,7 +24,7 @@
         <div class="upload-container">
             <p>Tambah Lagu Baru</p>
             <input type="file" id="fileInput" accept="audio/*">
-            <button onclick="uploadSong()" id="uploadBtn">Upload ke Drive</button>
+            <button onclick="uploadSong()" id="uploadBtn">Upload ke Supabase</button>
             <p id="uploadStatus" class="status-text"></p>
         </div>
     </div>
@@ -55,31 +55,42 @@
             </div>
 
             <div class="song-list" id="songList">
-                <p class="loading-text"><i class="fas fa-spinner fa-spin"></i> Loading lagu dari Drive...</p>
+                <p class="loading-text"><i class="fas fa-spinner fa-spin"></i> Loading lagu dari Supabase...</p>
             </div>
         </div>
     </div>
 
     <div class="player-bottom">
         <div class="player-info">
-            <div class="album-art"><i class="fas fa-music"></i></div>
+            <div class="album-art"><i class="fas fa-compact-disc"></i></div>
             <div class="track-info">
                 <h4 id="currentSongName">Belum ada lagu diputar</h4>
-                <p>Google Drive Streaming</p>
+                <p id="currentSongSub">Public streaming via Supabase</p>
             </div>
         </div>
         
         <div class="player-controls">
-            <audio id="audioPlayer" controls controlsList="nodownload">
-                Browser lu gak support elemen audio.
-            </audio>
+            <div class="transport-controls">
+                <button id="prevBtn" class="icon-btn" title="Sebelumnya"><i class="fas fa-backward-step"></i></button>
+                <button id="playPauseBtn" class="main-play-btn" title="Play / Pause"><i class="fas fa-play"></i></button>
+                <button id="nextBtn" class="icon-btn" title="Berikutnya"><i class="fas fa-forward-step"></i></button>
+            </div>
+            <div class="seek-row">
+                <span id="currentTime">0:00</span>
+                <input type="range" id="seekBar" min="0" max="100" value="0">
+                <span id="durationTime">0:00</span>
+            </div>
         </div>
         
         <div class="player-extra">
-            <i class="fas fa-volume-up"></i>
+            <i class="fas fa-volume-low"></i>
+            <input type="range" id="volumeBar" min="0" max="100" value="100">
         </div>
     </div>
 
+    <audio id="audioPlayer" preload="metadata"></audio>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="script.js"></script>
 </body>
 </html>
