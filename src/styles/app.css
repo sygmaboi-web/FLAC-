@@ -551,10 +551,11 @@ h2 {
 }
 
 .eq-band {
-  border: 1px solid rgba(107, 128, 161, 0.35);
-  border-radius: 8px;
-  padding: 8px;
-  background: rgba(13, 22, 40, 0.75);
+  border: 1px solid rgba(92, 109, 139, 0.5);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(12, 20, 36, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
 
 .eq-actions {
@@ -568,11 +569,11 @@ h2 {
   right: 120px;
   bottom: 90px;
   width: min(720px, 90vw);
-  border-radius: 16px;
-  border: 1px solid #2d3f60;
-  padding: 14px;
-  background: rgba(9, 15, 28, 0.95);
-  box-shadow: 0 18px 50px rgba(2, 6, 14, 0.6);
+  border-radius: 18px;
+  border: 1px solid rgba(71, 90, 124, 0.65);
+  padding: 16px;
+  background: linear-gradient(180deg, rgba(12, 21, 38, 0.98), rgba(8, 14, 26, 0.98));
+  box-shadow: 0 20px 60px rgba(2, 6, 14, 0.72);
   display: none;
   gap: 10px;
   z-index: 4000;
@@ -586,12 +587,26 @@ h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-weight: 800;
 }
 
 .eq-popover-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(150px, 1fr));
   gap: 8px 14px;
+}
+
+.eq-popover .eq-footer {
+  grid-template-columns: 1fr 1fr;
+}
+
+.eq-popover .btn {
+  padding: 10px 16px;
+  font-weight: 800;
+}
+
+.eq-popover input[type="range"] {
+  accent-color: #e6eefb;
 }
 
 .offline-section {
@@ -888,4 +903,3 @@ h2 {
     bottom: 110px;
   }
 }
-
