@@ -123,6 +123,41 @@ const eqSliders = eqState => {
     .join('');
 };
 
+const eqGraph = eqState => {
+  const width = 520;
+  const height = 140;
+  const padX = 16;
+  const padY = 14;
+  const usableW = width - padX * 2;
+  const usableH = height - padY * 2;
+  const points = eqState.bands.map((value, index) => {
+    const x = padX + (usableW * index) / (eqState.bands.length - 1);
+    const normalized = (Number(value) + 12) / 24;
+    const y = padY + usableH - usableH * normalized;
+    return `${x},${y}`;
+  });
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="eq-graph">
+      ${eqState.bands
+        .map((_, index) => {
+          const x = padX + (usableW * index) / (eqState.bands.length - 1);
+          return `<line class="eq-graph-grid" x1="${x}" y1="${padY}" x2="${x}" y2="${height - padY}"></line>`;
+        })
+        .join('')}
+      <polyline class="eq-graph-line" points="${points.join(' ')}"></polyline>
+      ${eqState.bands
+        .map((value, index) => {
+          const x = padX + (usableW * index) / (eqState.bands.length - 1);
+          const normalized = (Number(value) + 12) / 24;
+          const y = padY + usableH - usableH * normalized;
+          return `<circle class="eq-graph-dot" cx="${x}" cy="${y}" r="5"></circle>`;
+        })
+        .join('')}
+    </svg>
+  `;
+};
+
 export const renderAppView = ({ root, state, handlers }) => {
   const currentView = state.view;
   const fullLibrary = state.library || [];
@@ -393,26 +428,51 @@ export const renderAppView = ({ root, state, handlers }) => {
         <i class="fas fa-volume-high"></i>
         <input type="range" min="0" max="100" value="${Math.round((state.player.volume || 1) * 100)}" data-action="volume">
       </div>
-      <div class="eq-popover ${state.eqPanelOpen ? 'is-open' : ''}">
-        <div class="eq-popover-header">
-          <strong>Equalizer + Audio Pro</strong>
-          <label class="toggle">
+      <div class="eq-popover fxsound ${state.eqPanelOpen ? 'is-open' : ''}">
+        <div class="fx-head">
+          <div class="fx-title"><span class="fx-logo">fx</span> FxSound</div>
+          <button class="icon-btn" data-action="toggle-eq-panel" title="Close"><i class="fas fa-xmark"></i></button>
+        </div>
+        <div class="fx-top">
+          <div class="fx-select">Lagu Lawas <i class="fas fa-chevron-down"></i></div>
+          <div class="fx-select">Speakers (Web Audio) <i class="fas fa-chevron-down"></i></div>
+          <label class="toggle fx-toggle">
             <input type="checkbox" data-action="eq-toggle" ${state.eqState.enabled ? 'checked' : ''}>
             <span>Enabled</span>
           </label>
         </div>
-        <div class="eq-popover-grid">${eqSliders(state.eqState)}</div>
-        <div class="eq-footer">
+        <div class="fx-body">
+          <div class="fx-left">
+            ${['Clarity', 'Ambience', 'Surround Sound', 'Dynamic Boost', 'Bass Boost']
+              .map(
+                label => `
+              <div class="fx-side-row">
+                <span>${label}</span>
+                <div class="fx-side-track"><span class="fx-side-dot"></span></div>
+              </div>
+            `
+              )
+              .join('')}
+          </div>
+          <div class="fx-right">
+            <div class="fx-graph-wrap">${eqGraph(state.eqState)}</div>
+            <div class="fx-band-labels">
+              ${EQ_FREQ_LABELS.map(label => `<span>${label}</span>`).join('')}
+            </div>
+            <div class="fx-sliders">${eqSliders(state.eqState)}</div>
+          </div>
+        </div>
+        <div class="fx-bottom">
           <label>Preamp
             <input type="range" min="-12" max="12" step="0.5" value="${state.eqState.preamp}" data-action="eq-preamp">
           </label>
           <label>Crossfade (${state.player.crossfadeSeconds}s)
             <input type="range" min="0" max="8" step="1" value="${state.player.crossfadeSeconds}" data-action="crossfade">
           </label>
-        </div>
-        <div class="eq-actions">
-          <button class="btn btn-outline" data-action="save-eq">Save Setting</button>
-          <button class="btn btn-ghost" data-action="reset-eq">Reset</button>
+          <div class="eq-actions">
+            <button class="btn btn-outline" data-action="save-eq">Save Setting</button>
+            <button class="btn btn-ghost" data-action="reset-eq">Reset</button>
+          </div>
         </div>
       </div>
     </footer>
@@ -503,6 +563,7 @@ export const renderAppView = ({ root, state, handlers }) => {
     root.__appBound = true;
   }
 };
+
 
 
 
