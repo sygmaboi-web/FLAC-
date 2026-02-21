@@ -71,8 +71,8 @@ function playSong(url, name) {
     }
 }
 
-// === FUNGSI UPLOAD ===
-function uploadSong() {
+// === FUNGSI UPLOAD KE CLOUDINARY ===
+async function uploadSong() {
     const fileInput = document.getElementById('fileInput');
     const file = fileInput.files[0];
     const btn = document.getElementById('uploadBtn');
@@ -84,46 +84,50 @@ function uploadSong() {
         return;
     }
 
-    btn.innerText = "Mikir...";
+    btn.innerText = "Uploading ke Cloudinary...";
     btn.disabled = true;
-    status.innerText = "Lagi upload ke Drive...";
+    status.innerText = "Lagi ngirim jalur VIP...";
     status.style.color = "#b3b3b3";
 
-    const reader = new FileReader();
-    reader.onload = async function() {
-        const base64Data = reader.result.split(',')[1]; 
-        
-        const payload = {
-            fileName: file.name,
-            mimeType: file.type,
-            base64: base64Data
-        };
+    // --- SETUP CLOUDINARY LU DI SINI ---
+    const cloudName = 'TARUH_CLOUD_NAME_LU_DISINI'; 
+    const uploadPreset = 'kingpin_audio'; // Sesuaikan sama nama preset yang lu bikin di Langkah 2
 
-        try {
-            const response = await fetch(APPS_SCRIPT_URL, {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            });
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', uploadPreset);
+
+    try {
+        // Nge-post file langsung ke server Cloudinary
+        const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.secure_url) {
+            status.innerText = "Upload sukses, bre!";
+            status.style.color = "#1DB954";
+            fileInput.value = ''; 
             
-            const result = await response.json();
-            if(result.status === 'success') {
-                status.innerText = "Upload sukses!";
-                status.style.color = "#1DB954";
-                fileInput.value = ''; 
-                loadSongs(); // Refresh daftar otomatis
-            } else {
-                status.innerText = "Gagal: " + result.message;
-            }
-        } catch (error) {
-            status.innerText = "CORS / Koneksi error.";
-            console.error(error);
-        } finally {
-            btn.innerText = "Upload ke Drive";
-            btn.disabled = false;
+            // INI LINK STREAMING ASLINYA!
+            console.log("Link lagu lu:", result.secure_url);
+            
+            // Nah, link result.secure_url ini yang harusnya disimpen ke database
+            // Biar gampang, kita tes putar langsung aja dulu
+            playSong(result.secure_url, file.name); 
+
+        } else {
+            status.innerText = "Gagal upload: " + result.error.message;
         }
-    };
-    
-    reader.readAsDataURL(file);
+    } catch (error) {
+        status.innerText = "Koneksi putus pas upload.";
+        console.error(error);
+    } finally {
+        btn.innerText = "Upload ke Cloudinary";
+        btn.disabled = false;
+    }
 }
 
 // === FUNGSI FITUR SEARCH (DI TENGAH ATAS) ===
