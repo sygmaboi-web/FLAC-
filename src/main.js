@@ -10,6 +10,7 @@ import { shareClient } from './modules/shareClient.js';
 import { offlineClient } from './modules/offlineClient.js';
 import { metadataParser } from './modules/metadataParser.js';
 import { AudioEngine } from './modules/audioEngine.js';
+import { geminiClient } from './modules/geminiClient.js';
 import { getState, setState, updateState, subscribe, pushNotice, clearNotice, resetState } from './state/store.js';
 import { renderAuthView } from './views/authView.js';
 import { renderAppView } from './views/appView.js';
@@ -606,6 +607,38 @@ const handlers = {
     }
     await prepareUploadAtCursor();
   },
+  'ai-fill': async () => {
+    if (!currentUploadFile || !currentUploadMetadata) {
+      pushNotice('warning', 'Select a file first.');
+      render();
+      return;
+    }
+    try {
+      const suggestion = await geminiClient.suggestMetadata({
+        filename: currentUploadFile.name,
+        existing: {
+          title: currentUploadMetadata.title,
+          artist: currentUploadMetadata.artist,
+          album: currentUploadMetadata.album,
+          track_number: currentUploadMetadata.track_number,
+          year: currentUploadMetadata.year,
+          genre: currentUploadMetadata.genre
+        }
+      });
+
+      if (suggestion.title) qs('#metaTitle', root).value = suggestion.title;
+      if (suggestion.artist) qs('#metaArtist', root).value = suggestion.artist;
+      if (suggestion.album) qs('#metaAlbum', root).value = suggestion.album;
+      if (suggestion.track_number) qs('#metaTrack', root).value = suggestion.track_number;
+      if (suggestion.year) qs('#metaYear', root).value = suggestion.year;
+      if (suggestion.genre) qs('#metaGenre', root).value = suggestion.genre;
+
+      pushNotice('success', 'Metadata auto-filled.');
+    } catch (error) {
+      pushNotice('error', error.message || 'AI autofill failed');
+    }
+    render();
+  },
   'dismiss-notice': (_e, el) => {
     const id = el.getAttribute('data-notice-id');
     if (!id) return;
@@ -776,4 +809,5 @@ bootstrap().catch(error => {
   console.error(error);
   root.innerHTML = `<div class="app-error"><h1>App failed to start</h1><p>${error.message || 'Unknown error'}</p></div>`;
 });
+
 
