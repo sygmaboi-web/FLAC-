@@ -637,6 +637,10 @@ const handlers = {
     audioEngine.setEqEnabled(enabled);
     updateState(prev => ({ ...prev, eqState: { ...prev.eqState, enabled } }));
   },
+  'toggle-eq-panel': () => {
+    updateState(prev => ({ ...prev, eqPanelOpen: !prev.eqPanelOpen }));
+    render();
+  },
   'eq-preamp': event => {
     updateState(prev => ({ ...prev, eqState: { ...prev.eqState, preamp: Number(event.target.value) } }));
     audioEngine.setEqState(getState().eqState);
@@ -772,3 +776,4 @@ bootstrap().catch(error => {
   console.error(error);
   root.innerHTML = `<div class="app-error"><h1>App failed to start</h1><p>${error.message || 'Unknown error'}</p></div>`;
 });
+
