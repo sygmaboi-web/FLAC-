@@ -43,6 +43,9 @@ const EQ_PRESETS = {
 let supabaseClient = null;
 let allSongs = [];
 let currentSongIndex = -1;
+let currentMenu = 'home';
+let isShuffleEnabled = false;
+let playbackHistory = [];
 
 let audioContext = null;
 let sourceNode = null;
@@ -129,6 +132,29 @@ function sanitizeFileName(name) {
     return name.replace(/[^\w.\-]/g, '_');
 }
 
+function stripExtension(filename) {
+    return String(filename || '').replace(/\.[^/.]+$/, '');
+}
+
+function parseSongMeta(row) {
+    const rawName = row.name || 'Untitled';
+    const baseName = stripExtension(rawName).trim() || 'Untitled';
+    const parts = baseName.split(' - ').map(part => part.trim()).filter(Boolean);
+
+    const inferredArtist = parts.length > 1 ? parts[0] : 'Unknown Artist';
+    const inferredTitle = parts.length > 1 ? parts.slice(1).join(' - ') : baseName;
+
+    const artist = (row.artist && String(row.artist).trim()) || inferredArtist || 'Unknown Artist';
+    const album = (row.album && String(row.album).trim()) || 'Single';
+    const title = (row.title && String(row.title).trim()) || inferredTitle || baseName;
+
+    return { title, artist, album, rawName };
+}
+
+function songSubtitle(song) {
+    return `${song.artist || 'Unknown Artist'} - ${song.album || 'Single'}`;
+}
+
 function formatTime(totalSeconds) {
     if (!Number.isFinite(totalSeconds)) return '0:00';
     const minutes = Math.floor(totalSeconds / 60);
@@ -151,6 +177,87 @@ function setUploadStatus(text, color = '#b3b3b3') {
 function setSelectedFilesText(text) {
     const selectedFilesText = document.getElementById('selectedFilesText');
     selectedFilesText.innerText = text;
+}
+
+function updateShuffleUI() {
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    const homeShuffleState = document.getElementById('homeShuffleState');
+
+    if (shuffleBtn) shuffleBtn.classList.toggle('is-active', isShuffleEnabled);
+    if (homeShuffleState) homeShuffleState.innerText = isShuffleEnabled ? 'On' : 'Off';
+}
+
+function updateHomeNowPlaying() {
+    const homeNowPlaying = document.getElementById('homeNowPlaying');
+    if (!homeNowPlaying) return;
+
+    if (currentSongIndex < 0 || !allSongs[currentSongIndex]) {
+        homeNowPlaying.innerText = 'Belum ada';
+        return;
+    }
+
+    homeNowPlaying.innerText = allSongs[currentSongIndex].name;
+}
+
+function renderHomeRecentSongs() {
+    const homeRecentList = document.getElementById('homeRecentList');
+    const homeTotalSongs = document.getElementById('homeTotalSongs');
+    if (!homeRecentList || !homeTotalSongs) return;
+
+    homeTotalSongs.innerText = String(allSongs.length);
+    updateHomeNowPlaying();
+    updateShuffleUI();
+
+    homeRecentList.innerHTML = '';
+
+    if (!allSongs.length) {
+        homeRecentList.innerHTML = '<p style="color: #b3b3b3; padding: 10px;">Belum ada lagu.</p>';
+        return;
+    }
+
+    allSongs.slice(0, 8).forEach(song => {
+        const globalIndex = allSongs.findIndex(item => String(item.id) === String(song.id));
+        const item = document.createElement('div');
+        item.className = 'home-recent-item';
+        item.innerHTML = `
+            <div>
+                <div class="home-recent-title"></div>
+                <div class="home-recent-sub"></div>
+            </div>
+            <button class="home-play-btn" title="Putar"><i class="fas fa-play"></i></button>
+        `;
+
+        item.querySelector('.home-recent-title').innerText = song.name;
+        item.querySelector('.home-recent-sub').innerText = songSubtitle(song);
+        if (song.url) {
+            item.querySelector('.home-play-btn').onclick = e => {
+                e.stopPropagation();
+                playSongByIndex(globalIndex);
+            };
+            item.onclick = () => playSongByIndex(globalIndex);
+        } else {
+            item.querySelector('.home-play-btn').disabled = true;
+        }
+
+        homeRecentList.appendChild(item);
+    });
+}
+
+function refreshVisibleLibraryList() {
+    const query = document.getElementById('searchInput').value.toLowerCase().trim();
+    if (!query) {
+        renderSongs(allSongs);
+        return;
+    }
+
+    const filtered = allSongs.filter(song => {
+        return (
+            song.name.toLowerCase().includes(query) ||
+            song.artist.toLowerCase().includes(query) ||
+            song.album.toLowerCase().includes(query)
+        );
+    });
+    renderSongs(filtered);
 }
 
 function setEQStatus(text, color = '#95a4bd') {
@@ -201,9 +308,14 @@ function toSongView(row) {
         streamUrl = data.publicUrl;
     }
 
+    const meta = parseSongMeta(row);
+
     return {
         id: row.id,
-        name: row.name || 'Untitled',
+        name: meta.title || 'Untitled',
+        original_name: meta.rawName || row.name || 'Untitled',
+        artist: meta.artist || 'Unknown Artist',
+        album: meta.album || 'Single',
         path: row.path,
         url: streamUrl,
         mime_type: row.mime_type || '',
@@ -541,13 +653,21 @@ async function ensureAudioContextRunning() {
 
 async function loadSongs() {
     const listContainer = document.getElementById('songList');
+    const homeRecentList = document.getElementById('homeRecentList');
+    const currentPlayingId = currentSongIndex >= 0 ? allSongs[currentSongIndex]?.id : null;
 
     if (!supabaseClient) {
         listContainer.innerHTML = '<p style="color: #ff6b6b; padding: 20px;">Isi config Supabase di script.js dulu.</p>';
+        if (homeRecentList) {
+            homeRecentList.innerHTML = '<p style="color: #ff6b6b; padding: 10px;">Isi config Supabase di script.js dulu.</p>';
+        }
         return;
     }
 
     listContainer.innerHTML = '<p class="loading-text"><i class="fas fa-spinner fa-spin"></i> Loading lagu dari Supabase...</p>';
+    if (homeRecentList) {
+        homeRecentList.innerHTML = '<p class="loading-text"><i class="fas fa-spinner fa-spin"></i> Loading lagu dari Supabase...</p>';
+    }
 
     try {
         const { data, error } = await supabaseClient
@@ -557,11 +677,18 @@ async function loadSongs() {
 
         if (error) throw error;
 
-        allSongs = (data || []).map(toSongView).filter(song => !!song.url);
-        renderSongs(allSongs);
+        allSongs = (data || []).map(toSongView);
+        currentSongIndex = currentPlayingId
+            ? allSongs.findIndex(song => String(song.id) === String(currentPlayingId))
+            : -1;
+        refreshVisibleLibraryList();
+        renderHomeRecentSongs();
     } catch (error) {
         console.error(error);
         listContainer.innerHTML = '<p style="color: #ff6b6b; padding: 20px;">Gagal load lagu dari Supabase.</p>';
+        if (homeRecentList) {
+            homeRecentList.innerHTML = '<p style="color: #ff6b6b; padding: 10px;">Gagal load lagu dari Supabase.</p>';
+        }
     }
 }
 function renderSongs(songsArray) {
@@ -578,6 +705,7 @@ function renderSongs(songsArray) {
         const item = document.createElement('div');
         item.className = 'song-item';
         item.dataset.songId = String(song.id);
+        if (!song.url) item.classList.add('song-disabled');
 
         const fileType = song.mime_type ? song.mime_type.replace('audio/', '').toUpperCase() : 'AUDIO';
 
@@ -589,6 +717,8 @@ function renderSongs(songsArray) {
                 </div>
                 <span class="song-name"></span>
             </div>
+            <div class="song-artist"></div>
+            <div class="song-album"></div>
             <div class="col-action action-group">
                 <span class="file-badge">${fileType}</span>
                 <button class="delete-btn" title="Hapus lagu"><i class="fas fa-trash"></i></button>
@@ -596,12 +726,18 @@ function renderSongs(songsArray) {
         `;
 
         item.querySelector('.song-name').innerText = song.name;
+        item.querySelector('.song-artist').innerText = song.artist || 'Unknown Artist';
+        item.querySelector('.song-album').innerText = song.album || 'Single';
 
-        item.onclick = () => playSongByIndex(globalIndex);
-        item.querySelector('.play-btn-list').onclick = e => {
-            e.stopPropagation();
-            playSongByIndex(globalIndex);
-        };
+        if (song.url) {
+            item.onclick = () => playSongByIndex(globalIndex);
+            item.querySelector('.play-btn-list').onclick = e => {
+                e.stopPropagation();
+                playSongByIndex(globalIndex);
+            };
+        } else {
+            item.querySelector('.play-btn-list').disabled = true;
+        }
         item.querySelector('.delete-btn').onclick = async e => {
             e.stopPropagation();
             await deleteSong(song.id);
@@ -628,14 +764,23 @@ async function playSongByIndex(index) {
     const currentSongName = document.getElementById('currentSongName');
     const currentSongSub = document.getElementById('currentSongSub');
 
+    if (currentSongIndex >= 0 && currentSongIndex !== index) {
+        playbackHistory.push(currentSongIndex);
+        if (playbackHistory.length > 120) playbackHistory.shift();
+    }
+
     currentSongIndex = index;
     const song = allSongs[currentSongIndex];
+
+    if (!song.url) {
+        setUploadStatus(`Lagu "${song.name}" belum punya URL stream yang valid.`, '#ff6b6b');
+        return;
+    }
 
     player.crossOrigin = 'anonymous';
     player.src = song.url;
     currentSongName.innerText = song.name;
-    const typeLabel = song.mime_type ? song.mime_type.replace('audio/', '').toUpperCase() : 'AUDIO';
-    currentSongSub.innerText = `Streaming ${typeLabel} dari Supabase`;
+    currentSongSub.innerText = songSubtitle(song);
     player.load();
 
     await ensureAudioContextRunning();
@@ -643,6 +788,7 @@ async function playSongByIndex(index) {
 
     playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
     highlightCurrentSong();
+    updateHomeNowPlaying();
 }
 
 async function togglePlayPause() {
@@ -666,7 +812,17 @@ async function togglePlayPause() {
 
 function playNext() {
     if (!allSongs.length) return;
-    const nextIndex = currentSongIndex >= 0 ? (currentSongIndex + 1) % allSongs.length : 0;
+    let nextIndex = 0;
+
+    if (isShuffleEnabled && allSongs.length > 1) {
+        const current = currentSongIndex >= 0 ? currentSongIndex : 0;
+        do {
+            nextIndex = Math.floor(Math.random() * allSongs.length);
+        } while (nextIndex === current);
+    } else {
+        nextIndex = currentSongIndex >= 0 ? (currentSongIndex + 1) % allSongs.length : 0;
+    }
+
     playSongByIndex(nextIndex);
 }
 
@@ -679,8 +835,26 @@ function playPrev() {
         return;
     }
 
+    if (isShuffleEnabled && playbackHistory.length) {
+        const prevIndex = playbackHistory.pop();
+        if (Number.isInteger(prevIndex) && prevIndex >= 0 && prevIndex < allSongs.length) {
+            currentSongIndex = -1;
+            playSongByIndex(prevIndex);
+            return;
+        }
+    }
+
     const prevIndex = currentSongIndex > 0 ? currentSongIndex - 1 : allSongs.length - 1;
     playSongByIndex(prevIndex);
+}
+
+function toggleShuffle() {
+    isShuffleEnabled = !isShuffleEnabled;
+    updateShuffleUI();
+    setUploadStatus(
+        isShuffleEnabled ? 'Shuffle aktif: urutan lagu akan diacak.' : 'Shuffle mati: urutan normal.',
+        isShuffleEnabled ? '#1DB954' : '#9db0cb'
+    );
 }
 
 function syncTimeline() {
@@ -830,12 +1004,14 @@ async function deleteSong(songId) {
             player.src = '';
             currentSongIndex = -1;
             document.getElementById('currentSongName').innerText = 'Belum ada lagu diputar';
-            document.getElementById('currentSongSub').innerText = 'Public streaming via Supabase';
+            document.getElementById('currentSongSub').innerText = 'Unknown Artist - Single';
             document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play"></i>';
             syncTimeline();
+            updateHomeNowPlaying();
         } else if (currentSongIndex >= allSongs.length) {
             currentSongIndex = allSongs.length - 1;
             highlightCurrentSong();
+            updateHomeNowPlaying();
         }
 
         setUploadStatus('Lagu berhasil dihapus.', '#1DB954');
@@ -847,28 +1023,54 @@ async function deleteSong(songId) {
 
 function searchLagu() {
     const query = document.getElementById('searchInput').value.toLowerCase().trim();
-    const filtered = allSongs.filter(song => song.name.toLowerCase().includes(query));
+    const pageTitle = document.getElementById('pageTitle');
+    const homeView = document.getElementById('homeView');
+    const libraryView = document.getElementById('libraryView');
+
+    if (!query) {
+        switchMenu(currentMenu);
+        return;
+    }
+
+    const filtered = allSongs.filter(song => {
+        return (
+            song.name.toLowerCase().includes(query) ||
+            song.artist.toLowerCase().includes(query) ||
+            song.album.toLowerCase().includes(query)
+        );
+    });
+
+    homeView.classList.remove('active');
+    libraryView.classList.add('active');
+    pageTitle.innerText = `Search: "${query}"`;
     renderSongs(filtered);
 }
 
 function switchMenu(menuItem, clickedEl) {
     const navItems = document.querySelectorAll('.nav-links li');
-    const searchContainer = document.getElementById('searchContainer');
     const pageTitle = document.getElementById('pageTitle');
+    const homeView = document.getElementById('homeView');
+    const libraryView = document.getElementById('libraryView');
+    const activeMenu = menuItem === 'library' ? 'library' : 'home';
 
-    navItems.forEach(item => item.classList.remove('active'));
-    clickedEl.classList.add('active');
+    currentMenu = activeMenu;
 
-    if (menuItem === 'search') {
-        searchContainer.style.display = 'flex';
-        pageTitle.innerText = 'Search Results';
-        document.getElementById('searchInput').focus();
-        return;
+    navItems.forEach(item => {
+        item.classList.toggle('active', item.dataset.menu === activeMenu);
+    });
+
+    if (clickedEl) clickedEl.classList.add('active');
+
+    const isHome = activeMenu === 'home';
+    homeView.classList.toggle('active', isHome);
+    libraryView.classList.toggle('active', !isHome);
+    pageTitle.innerText = isHome ? 'Home' : 'Your Library';
+
+    if (isHome) {
+        renderHomeRecentSongs();
+    } else {
+        refreshVisibleLibraryList();
     }
-
-    searchContainer.style.display = 'none';
-    pageTitle.innerText = menuItem === 'home' ? 'Your FLAC Collection' : 'Your Library';
-    renderSongs(allSongs);
 }
 function initEqualizerBindings() {
     buildEQUI();
@@ -979,6 +1181,7 @@ function initEqualizerBindings() {
 function initPlayerBindings() {
     const player = document.getElementById('audioPlayer');
     const playPauseBtn = document.getElementById('playPauseBtn');
+    const shuffleBtn = document.getElementById('shuffleBtn');
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
     const seekBar = document.getElementById('seekBar');
@@ -986,6 +1189,7 @@ function initPlayerBindings() {
     const fileInput = document.getElementById('fileInput');
 
     playPauseBtn.addEventListener('click', togglePlayPause);
+    shuffleBtn.addEventListener('click', toggleShuffle);
     prevBtn.addEventListener('click', playPrev);
     nextBtn.addEventListener('click', playNext);
 
@@ -1016,11 +1220,14 @@ function initPlayerBindings() {
         playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
     });
     player.addEventListener('ended', playNext);
+
+    updateShuffleUI();
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
     initPlayerBindings();
     initEqualizerBindings();
+    switchMenu('home');
     const configured = initSupabase();
 
     if (!configured) {
@@ -1029,5 +1236,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     await loadSongs();
+    switchMenu(currentMenu);
 });
+
 
