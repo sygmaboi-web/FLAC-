@@ -3,175 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>King Pin Music (Drive-ify)</title>
-    <style>
-        /* CSS ala Spotify (Dark Mode & Green Accent) */
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background-color: #121212; color: white; display: flex; height: 100vh; overflow: hidden; }
-        
-        /* Sidebar */
-        .sidebar { width: 250px; background-color: #000000; padding: 20px; display: flex; flex-direction: column; }
-        .sidebar h2 { color: #1DB954; margin-bottom: 30px; }
-        .sidebar ul { list-style: none; }
-        .sidebar li { padding: 10px 0; color: #b3b3b3; cursor: pointer; transition: 0.3s; font-weight: bold; }
-        .sidebar li:hover { color: white; }
-
-        /* Main Content */
-        .main-content { flex: 1; padding: 20px; overflow-y: auto; padding-bottom: 100px; background: linear-gradient(180deg, #2a2a2a 0%, #121212 100%); }
-        h1 { margin-bottom: 20px; }
-        
-        /* Upload Section */
-        .upload-section { background-color: #181818; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        .upload-section input[type="file"] { color: #b3b3b3; }
-        button { background-color: #1DB954; color: black; border: none; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.3s; }
-        button:hover { transform: scale(1.05); }
-
-        /* Song List */
-        .song-list { display: flex; flex-direction: column; gap: 10px; }
-        .song-item { background-color: #181818; padding: 15px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: 0.3s; }
-        .song-item:hover { background-color: #282828; }
-        .song-item span { color: white; font-weight: 500; }
-
-        /* Bottom Player */
-        .player { position: fixed; bottom: 0; left: 0; width: 100%; height: 90px; background-color: #181818; border-top: 1px solid #282828; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
-        .now-playing { width: 200px; }
-        .now-playing p { font-weight: bold; font-size: 14px; }
-        audio { width: 50vw; outline: none; }
-    </style>
+    <title>KingPin Music (Drive-ify)</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
 
     <div class="sidebar">
-        <h2>KingPin Music</h2>
-        <ul>
-            <li>🏠 Home</li>
-            <li>🔍 Search</li>
-            <li>📚 Your Library</li>
+        <div class="logo">
+            <i class="fab fa-spotify"></i> KingPin Music
+        </div>
+        <ul class="nav-links">
+            <li class="active" onclick="switchMenu('home')"><i class="fas fa-home"></i> Home</li>
+            <li onclick="switchMenu('search')"><i class="fas fa-search"></i> Search</li>
+            <li onclick="switchMenu('library')"><i class="fas fa-book-open"></i> Your Library</li>
         </ul>
-    </div>
-
-    <div class="main-content">
-        <h1>Your FLAC Collection</h1>
         
-        <div class="upload-section">
-            <h3>Upload Lagu Baru</h3>
+        <div class="sidebar-divider"></div>
+        
+        <div class="upload-container">
+            <p>Tambah Lagu Baru</p>
             <input type="file" id="fileInput" accept="audio/*">
             <button onclick="uploadSong()" id="uploadBtn">Upload ke Drive</button>
-            <p id="uploadStatus" style="color: #b3b3b3; font-size: 12px; margin-top: 5px;"></p>
-        </div>
-
-        <div class="song-list" id="songList">
-            <p style="color: #b3b3b3;">Loading lagu dari Drive...</p>
+            <p id="uploadStatus" class="status-text"></p>
         </div>
     </div>
 
-    <div class="player">
-        <div class="now-playing">
-            <p id="currentSongName">Belum ada lagu diputar</p>
+    <div class="main-container">
+        <div class="topbar">
+            <div class="nav-buttons">
+                <button><i class="fas fa-chevron-left"></i></button>
+                <button><i class="fas fa-chevron-right"></i></button>
+            </div>
+            
+            <div class="search-bar" id="searchContainer" style="display: none;">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="Cari lagu FLAC lu di sini..." onkeyup="searchLagu()">
+            </div>
+
+            <div class="profile-btn">
+                <i class="fas fa-user-circle"></i> King Pin
+            </div>
         </div>
-        <audio id="audioPlayer" controls controlsList="nodownload">
-            Your browser does not support the audio element.
-        </audio>
-        <div style="width: 200px;"></div> </div>
 
-    <script>
-        // MASUKIN URL WEB APP DARI GOOGLE APPS SCRIPT DI SINI
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-Kd_DNr-LJUVdDZwvPem0yNVZTaiBtuyQp7fEHmu-rYFt6SaZVmXEmQv6t1oQXmVK/exec'; 
-
-        // Fungsi buat nampilin daftar lagu dari Drive
-        async function loadSongs() {
-            const listContainer = document.getElementById('songList');
-            try {
-                const response = await fetch(APPS_SCRIPT_URL);
-                const songs = await response.json();
-                
-                listContainer.innerHTML = ''; // Bersihin text loading
-                
-                if(songs.length === 0) {
-                    listContainer.innerHTML = '<p style="color: #b3b3b3;">Folder masih kosong, bre.</p>';
-                    return;
-                }
-
-                songs.forEach(song => {
-                    const div = document.createElement('div');
-                    div.className = 'song-item';
-                    div.innerHTML = `<span>🎵 ${song.name}</span> <button style="padding: 5px 15px; font-size: 12px;">Play</button>`;
-                    // Kalau lagu diklik, putar lagunya
-                    div.onclick = () => playSong(song.url, song.name);
-                    listContainer.appendChild(div);
-                });
-            } catch (error) {
-                listContainer.innerHTML = '<p style="color: red;">Gagal load lagu. Cek URL atau koneksi.</p>';
-                console.error(error);
-            }
-        }
-
-        // Fungsi buat muter lagu
-        function playSong(url, name) {
-            const player = document.getElementById('audioPlayer');
-            const songNameDisplay = document.getElementById('currentSongName');
+        <div class="content-area">
+            <h1 id="pageTitle">Your FLAC Collection</h1>
             
-            player.src = url;
-            player.play();
-            songNameDisplay.innerText = name;
-        }
+            <div class="playlist-header">
+                <div class="col-title"># TITLE</div>
+                <div class="col-action">ACTION</div>
+            </div>
 
-        // Fungsi buat upload lagu ke Drive
-        function uploadSong() {
-            const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
-            const btn = document.getElementById('uploadBtn');
-            const status = document.getElementById('uploadStatus');
+            <div class="song-list" id="songList">
+                <p class="loading-text"><i class="fas fa-spinner fa-spin"></i> Loading lagu dari Drive...</p>
+            </div>
+        </div>
+    </div>
 
-            if (!file) {
-                alert("Pilih lagunya dulu, bre!");
-                return;
-            }
+    <div class="player-bottom">
+        <div class="player-info">
+            <div class="album-art"><i class="fas fa-music"></i></div>
+            <div class="track-info">
+                <h4 id="currentSongName">Belum ada lagu diputar</h4>
+                <p>Google Drive Streaming</p>
+            </div>
+        </div>
+        
+        <div class="player-controls">
+            <audio id="audioPlayer" controls controlsList="nodownload">
+                Browser lu gak support elemen audio.
+            </audio>
+        </div>
+        
+        <div class="player-extra">
+            <i class="fas fa-volume-up"></i>
+        </div>
+    </div>
 
-            btn.innerText = "Uploading... (Tunggu bentar)";
-            btn.disabled = true;
-            status.innerText = "Lagi ngirim ke Google Drive...";
-
-            const reader = new FileReader();
-            reader.onload = async function() {
-                // Ambil base64 data-nya aja (buang header data:audio/flac;base64,)
-                const base64Data = reader.result.split(',')[1]; 
-                
-                const payload = {
-                    fileName: file.name,
-                    mimeType: file.type,
-                    base64: base64Data
-                };
-
-                try {
-                    const response = await fetch(APPS_SCRIPT_URL, {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-                    
-                    const result = await response.json();
-                    if(result.status === 'success') {
-                        status.innerText = "Upload sukses!";
-                        fileInput.value = ''; // Reset input
-                        loadSongs(); // Refresh daftar lagu
-                    } else {
-                        status.innerText = "Waduh, gagal: " + result.message;
-                    }
-                } catch (error) {
-                    status.innerText = "Error koneksi pas upload.";
-                    console.error(error);
-                } finally {
-                    btn.innerText = "Upload ke Drive";
-                    btn.disabled = false;
-                }
-            };
-            
-            // Mulai baca file sebagai Base64
-            reader.readAsDataURL(file);
-        }
-
-        // Load lagu pas web pertama kali dibuka
-        window.onload = loadSongs;
-    </script>
+    <script src="script.js"></script>
 </body>
 </html>
