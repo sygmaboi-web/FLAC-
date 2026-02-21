@@ -1,165 +1,350 @@
-// ======= TARUH URL WEB APP LU DI SINI =======
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-Kd_DNr-LJUVdDZwvPem0yNVZTaiBtuyQp7fEHmu-rYFt6SaZVmXEmQv6t1oQXmVK/exec'; 
+// ======= KONFIGURASI SUPABASE =======
+const SUPABASE_URL = 'https://nhxjrrfmpeqsgapornxx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oeGpycmZtcGVxc2dhcG9ybnh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2NjAyMDcsImV4cCI6MjA4NzIzNjIwN30.qyw6zaXhmIGwPEQR17Bi4c4W7slUUty5Byth3PXEav4';
+const SUPABASE_BUCKET = 'songs';
+const SUPABASE_TABLE = 'songs';
 
-// Array global buat nyimpen data lagu (biar gampang di-search)
+let supabaseClient = null;
 let allSongs = [];
+let currentSongIndex = -1;
 
-// === FUNGSI LOAD LAGU ===
-async function loadSongs() {
-    const listContainer = document.getElementById('songList');
-    try {
-        const response = await fetch(APPS_SCRIPT_URL);
-        allSongs = await response.json();
-        
-        renderSongs(allSongs); // Tampilkan ke HTML
-        
-    } catch (error) {
-        listContainer.innerHTML = '<p style="color: red; padding: 20px;">Gagal load lagu. Cek URL atau koneksi.</p>';
-        console.error("Error fetching data:", error);
-    }
+function isSupabaseConfigured() {
+    return (
+        SUPABASE_URL &&
+        SUPABASE_ANON_KEY &&
+        !SUPABASE_URL.includes('PASTE_') &&
+        !SUPABASE_ANON_KEY.includes('PASTE_')
+    );
 }
 
-// === FUNGSI RENDER KE HTML ===
-function renderSongs(songsArray) {
-    const listContainer = document.getElementById('songList');
-    listContainer.innerHTML = ''; 
+function initSupabase() {
+    if (!window.supabase || !isSupabaseConfigured()) return false;
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return true;
+}
 
-    if(songsArray.length === 0) {
-        listContainer.innerHTML = '<p style="color: #b3b3b3; padding: 20px;">Kosong bre, atau lagu gak ketemu.</p>';
+function sanitizeFileName(name) {
+    return name.replace(/[^\w.\-]/g, '_');
+}
+
+function formatTime(totalSeconds) {
+    if (!Number.isFinite(totalSeconds)) return '0:00';
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function setUploadStatus(text, color = '#b3b3b3') {
+    const status = document.getElementById('uploadStatus');
+    status.innerText = text;
+    status.style.color = color;
+}
+
+function toSongView(row) {
+    let streamUrl = row.url;
+    if (!streamUrl && row.path) {
+        const { data } = supabaseClient.storage.from(SUPABASE_BUCKET).getPublicUrl(row.path);
+        streamUrl = data.publicUrl;
+    }
+
+    return {
+        id: row.id,
+        name: row.name || 'Untitled',
+        path: row.path,
+        url: streamUrl,
+        mime_type: row.mime_type || '',
+        size_bytes: row.size_bytes || 0,
+        created_at: row.created_at
+    };
+}
+
+async function loadSongs() {
+    const listContainer = document.getElementById('songList');
+
+    if (!supabaseClient) {
+        listContainer.innerHTML = '<p style="color: #ff6b6b; padding: 20px;">Isi config Supabase di script.js dulu.</p>';
         return;
     }
 
-    songsArray.forEach((song, index) => {
-        const div = document.createElement('div');
-        div.className = 'song-item';
-        div.innerHTML = `
-            <div class="song-title-group">
-                <div class="song-icon">
-                    <span class="default-icon">${index + 1}</span>
-                    <button class="play-btn-list"><i class="fas fa-play"></i></button>
-                </div>
-                <span class="song-name">${song.name}</span>
-            </div>
-            <div class="col-action" style="color:#b3b3b3; font-size:12px;">FLAC / Audio</div>
-        `;
-        
-        // Event listener klik buat muter lagu
-        div.onclick = () => playSong(song.url, song.name);
-        listContainer.appendChild(div);
-    });
-}
+    listContainer.innerHTML = '<p class="loading-text"><i class="fas fa-spinner fa-spin"></i> Loading lagu dari Supabase...</p>';
 
-// === FUNGSI PLAY LAGU (YANG UDAH DIPERBAIKI) ===
-function playSong(url, name) {
-    const player = document.getElementById('audioPlayer');
-    const songNameDisplay = document.getElementById('currentSongName');
-    
-    // Set URL dan NAMA
-    player.src = url;
-    songNameDisplay.innerText = name;
-    
-    // FIX PENTING: Panggil load() dulu sebelum play()
-    player.load(); 
-    
-    // Coba otomatis play, tangkap error kalau diblokir
-    let playPromise = player.play();
-    if (playPromise !== undefined) {
-        playPromise.catch(error => {
-            console.log("Auto-play dicegah oleh browser, atau file FLAC terlalu besar untuk di-streaming langsung dari Drive tanpa login.", error);
-            // Kalau gagal autoplay, biarin usernya mencet tombol play manual di player bawah
-        });
+    try {
+        const { data, error } = await supabaseClient
+            .from(SUPABASE_TABLE)
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        allSongs = (data || []).map(toSongView).filter(song => !!song.url);
+        renderSongs(allSongs);
+    } catch (error) {
+        console.error(error);
+        listContainer.innerHTML = '<p style="color: #ff6b6b; padding: 20px;">Gagal load lagu dari Supabase.</p>';
     }
 }
 
-// === FUNGSI UPLOAD KE CLOUDINARY ===
+function renderSongs(songsArray) {
+    const listContainer = document.getElementById('songList');
+    listContainer.innerHTML = '';
+
+    if (!songsArray.length) {
+        listContainer.innerHTML = '<p style="color: #b3b3b3; padding: 20px;">Belum ada lagu atau hasil search kosong.</p>';
+        return;
+    }
+
+    songsArray.forEach((song, visibleIndex) => {
+        const globalIndex = allSongs.findIndex(item => item.id === song.id);
+        const item = document.createElement('div');
+        item.className = 'song-item';
+        item.dataset.songId = String(song.id);
+
+        const fileType = song.mime_type ? song.mime_type.replace('audio/', '').toUpperCase() : 'AUDIO';
+
+        item.innerHTML = `
+            <div class="song-title-group">
+                <div class="song-icon">
+                    <span class="default-icon">${visibleIndex + 1}</span>
+                    <button class="play-btn-list" title="Putar"><i class="fas fa-play"></i></button>
+                </div>
+                <span class="song-name"></span>
+            </div>
+            <div class="col-action"></div>
+        `;
+
+        item.querySelector('.song-name').innerText = song.name;
+        item.querySelector('.col-action').innerText = fileType;
+
+        item.onclick = () => playSongByIndex(globalIndex);
+        item.querySelector('.play-btn-list').onclick = e => {
+            e.stopPropagation();
+            playSongByIndex(globalIndex);
+        };
+
+        listContainer.appendChild(item);
+    });
+
+    highlightCurrentSong();
+}
+
+function highlightCurrentSong() {
+    const activeId = currentSongIndex >= 0 ? allSongs[currentSongIndex]?.id : null;
+    document.querySelectorAll('.song-item').forEach(item => {
+        item.classList.toggle('is-playing', Number(item.dataset.songId) === activeId);
+    });
+}
+
+function playSongByIndex(index) {
+    if (index < 0 || index >= allSongs.length) return;
+
+    const player = document.getElementById('audioPlayer');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const currentSongName = document.getElementById('currentSongName');
+    const currentSongSub = document.getElementById('currentSongSub');
+
+    currentSongIndex = index;
+    const song = allSongs[currentSongIndex];
+
+    player.src = song.url;
+    currentSongName.innerText = song.name;
+    const typeLabel = song.mime_type ? song.mime_type.replace('audio/', '').toUpperCase() : 'AUDIO';
+    currentSongSub.innerText = `Streaming ${typeLabel} dari Supabase`;
+    player.load();
+    player.play().catch(err => console.log('Autoplay dicegah browser:', err));
+
+    playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    highlightCurrentSong();
+}
+
+function togglePlayPause() {
+    const player = document.getElementById('audioPlayer');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+
+    if (!player.src) {
+        if (allSongs.length) playSongByIndex(0);
+        return;
+    }
+
+    if (player.paused) {
+        player.play().catch(err => console.log('Gagal play:', err));
+        playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    } else {
+        player.pause();
+        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+    }
+}
+
+function playNext() {
+    if (!allSongs.length) return;
+    const nextIndex = currentSongIndex >= 0 ? (currentSongIndex + 1) % allSongs.length : 0;
+    playSongByIndex(nextIndex);
+}
+
+function playPrev() {
+    const player = document.getElementById('audioPlayer');
+    if (!allSongs.length) return;
+
+    if (player.currentTime > 3) {
+        player.currentTime = 0;
+        return;
+    }
+
+    const prevIndex = currentSongIndex > 0 ? currentSongIndex - 1 : allSongs.length - 1;
+    playSongByIndex(prevIndex);
+}
+
+function syncTimeline() {
+    const player = document.getElementById('audioPlayer');
+    const seekBar = document.getElementById('seekBar');
+    const currentTime = document.getElementById('currentTime');
+    const durationTime = document.getElementById('durationTime');
+
+    if (!player.duration || !Number.isFinite(player.duration)) {
+        seekBar.value = 0;
+        currentTime.innerText = '0:00';
+        durationTime.innerText = '0:00';
+        return;
+    }
+
+    const progress = (player.currentTime / player.duration) * 100;
+    seekBar.value = Number.isFinite(progress) ? progress : 0;
+    currentTime.innerText = formatTime(player.currentTime);
+    durationTime.innerText = formatTime(player.duration);
+}
+
 async function uploadSong() {
     const fileInput = document.getElementById('fileInput');
     const file = fileInput.files[0];
     const btn = document.getElementById('uploadBtn');
-    const status = document.getElementById('uploadStatus');
 
-    if (!file) {
-        status.innerText = "Pilih file dulu, King!";
-        status.style.color = "red";
+    if (!supabaseClient) {
+        setUploadStatus('Config Supabase belum diisi.', '#ff6b6b');
         return;
     }
 
-    btn.innerText = "Uploading ke Cloudinary...";
+    if (!file) {
+        setUploadStatus('Pilih file dulu.', '#ff6b6b');
+        return;
+    }
+
+    if (!file.type.startsWith('audio/')) {
+        setUploadStatus('File harus audio.', '#ff6b6b');
+        return;
+    }
+
+    btn.innerText = 'Uploading...';
     btn.disabled = true;
-    status.innerText = "Lagi ngirim jalur VIP...";
-    status.style.color = "#b3b3b3";
+    setUploadStatus('Lagi upload ke Supabase...');
 
-    // --- SETUP CLOUDINARY LU DI SINI ---
-    const cloudName = 'TARUH_CLOUD_NAME_LU_DISINI'; 
-    const uploadPreset = 'kingpin_audio'; // Sesuaikan sama nama preset yang lu bikin di Langkah 2
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', uploadPreset);
+    const safeName = sanitizeFileName(file.name);
+    const filePath = `public/${Date.now()}-${safeName}`;
 
     try {
-        // Nge-post file langsung ke server Cloudinary
-        const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        
-        if (result.secure_url) {
-            status.innerText = "Upload sukses, bre!";
-            status.style.color = "#1DB954";
-            fileInput.value = ''; 
-            
-            // INI LINK STREAMING ASLINYA!
-            console.log("Link lagu lu:", result.secure_url);
-            
-            // Nah, link result.secure_url ini yang harusnya disimpen ke database
-            // Biar gampang, kita tes putar langsung aja dulu
-            playSong(result.secure_url, file.name); 
+        const { error: uploadError } = await supabaseClient.storage
+            .from(SUPABASE_BUCKET)
+            .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false,
+                contentType: file.type || 'audio/flac'
+            });
 
-        } else {
-            status.innerText = "Gagal upload: " + result.error.message;
-        }
+        if (uploadError) throw uploadError;
+
+        const { data: publicData } = supabaseClient.storage.from(SUPABASE_BUCKET).getPublicUrl(filePath);
+
+        const { error: insertError } = await supabaseClient
+            .from(SUPABASE_TABLE)
+            .insert({
+                name: file.name,
+                path: filePath,
+                url: publicData.publicUrl,
+                mime_type: file.type || null,
+                size_bytes: file.size
+            });
+
+        if (insertError) throw insertError;
+
+        setUploadStatus('Upload sukses.', '#1DB954');
+        fileInput.value = '';
+        await loadSongs();
+
+        const uploadedIndex = allSongs.findIndex(song => song.path === filePath);
+        if (uploadedIndex >= 0) playSongByIndex(uploadedIndex);
     } catch (error) {
-        status.innerText = "Koneksi putus pas upload.";
         console.error(error);
+        setUploadStatus(`Upload gagal: ${error.message || 'unknown error'}`, '#ff6b6b');
     } finally {
-        btn.innerText = "Upload ke Cloudinary";
+        btn.innerText = 'Upload ke Supabase';
         btn.disabled = false;
     }
 }
 
-// === FUNGSI FITUR SEARCH (DI TENGAH ATAS) ===
 function searchLagu() {
-    const input = document.getElementById('searchInput').value.toLowerCase();
-    // Filter array lagu berdasarkan nama
-    const filteredSongs = allSongs.filter(song => song.name.toLowerCase().includes(input));
-    renderSongs(filteredSongs);
+    const query = document.getElementById('searchInput').value.toLowerCase().trim();
+    const filtered = allSongs.filter(song => song.name.toLowerCase().includes(query));
+    renderSongs(filtered);
 }
 
-// === FUNGSI NAVIGASI SIDEBAR UI ===
-function switchMenu(menuItem) {
+function switchMenu(menuItem, clickedEl) {
     const navItems = document.querySelectorAll('.nav-links li');
     const searchContainer = document.getElementById('searchContainer');
     const pageTitle = document.getElementById('pageTitle');
-    
-    // Reset warna active
+
     navItems.forEach(item => item.classList.remove('active'));
-    
-    if(menuItem === 'home' || menuItem === 'library') {
-        event.currentTarget.classList.add('active');
-        searchContainer.style.display = 'none';
-        pageTitle.innerText = menuItem === 'home' ? 'Your FLAC Collection' : 'Your Library';
-        renderSongs(allSongs); // Tampilkan semua
-    } 
-    else if (menuItem === 'search') {
-        event.currentTarget.classList.add('active');
+    clickedEl.classList.add('active');
+
+    if (menuItem === 'search') {
         searchContainer.style.display = 'flex';
         pageTitle.innerText = 'Search Results';
-        document.getElementById('searchInput').focus(); // Otomatis ngetik
+        document.getElementById('searchInput').focus();
+        return;
     }
+
+    searchContainer.style.display = 'none';
+    pageTitle.innerText = menuItem === 'home' ? 'Your FLAC Collection' : 'Your Library';
+    renderSongs(allSongs);
 }
 
-// Load otomatis pas buka
-window.onload = loadSongs;
+function initPlayerBindings() {
+    const player = document.getElementById('audioPlayer');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const seekBar = document.getElementById('seekBar');
+    const volumeBar = document.getElementById('volumeBar');
+
+    playPauseBtn.addEventListener('click', togglePlayPause);
+    prevBtn.addEventListener('click', playPrev);
+    nextBtn.addEventListener('click', playNext);
+
+    seekBar.addEventListener('input', () => {
+        if (!player.duration || !Number.isFinite(player.duration)) return;
+        player.currentTime = (seekBar.value / 100) * player.duration;
+    });
+
+    volumeBar.addEventListener('input', () => {
+        player.volume = volumeBar.value / 100;
+    });
+
+    player.addEventListener('timeupdate', syncTimeline);
+    player.addEventListener('loadedmetadata', syncTimeline);
+    player.addEventListener('play', () => {
+        playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    });
+    player.addEventListener('pause', () => {
+        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+    });
+    player.addEventListener('ended', playNext);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    initPlayerBindings();
+    const configured = initSupabase();
+
+    if (!configured) {
+        document.getElementById('songList').innerHTML = '<p style="color: #ff6b6b; padding: 20px;">Isi `SUPABASE_URL` dan `SUPABASE_ANON_KEY` di script.js.</p>';
+        return;
+    }
+
+    await loadSongs();
+});
