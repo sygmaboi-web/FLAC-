@@ -55,7 +55,6 @@ function playSong(url, name) {
     const songNameDisplay = document.getElementById('currentSongName');
     
     // Set URL dan NAMA
-    player.crossOrigin = "anonymous";
     player.src = url;
     songNameDisplay.innerText = name;
     
