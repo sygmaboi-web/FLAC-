@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KingPin Music (Supabase FLAC)</title>
+    <title>KingPin Music</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -93,32 +93,83 @@
         </div>
     </div>
 
-    <div class="equalizer-panel">
-        <h3><i class="fas fa-sliders"></i> Equalizer</h3>
-        <div class="eq-controls">
-            <label>Bass
-                <input type="range" id="eqBass" min="-12" max="12" value="0" step="1">
-                <span id="eqBassValue">0 dB</span>
-            </label>
-            <label>Mid
-                <input type="range" id="eqMid" min="-12" max="12" value="0" step="1">
-                <span id="eqMidValue">0 dB</span>
-            </label>
-            <label>Treble
-                <input type="range" id="eqTreble" min="-12" max="12" value="0" step="1">
-                <span id="eqTrebleValue">0 dB</span>
-            </label>
-            <label>Output
-                <input type="range" id="eqGain" min="-12" max="12" value="0" step="1">
-                <span id="eqGainValue">0 dB</span>
-            </label>
+    <div class="equalizer-shell">
+        <div class="equalizer-panel" id="eqPanel">
+            <div class="eq-head">
+                <div class="eq-brand"><i class="fas fa-wave-square"></i> FxSound Style EQ</div>
+                <button id="eqPowerBtn" class="eq-power-btn" type="button" title="Equalizer On/Off">
+                    <i class="fas fa-power-off"></i>
+                </button>
+            </div>
+
+            <div class="eq-select-row">
+                <select id="eqPresetSelect">
+                    <option value="flat">Flat</option>
+                    <option value="bass">Bass Boost</option>
+                    <option value="vocal">Vocal Boost</option>
+                    <option value="bright">Bright</option>
+                    <option value="saved">Saved Preset</option>
+                    <option value="custom">Custom</option>
+                </select>
+                <div class="eq-device-pill">Headphones (Web Audio)</div>
+            </div>
+
+            <div class="eq-main-grid">
+                <div class="eq-enhance-col">
+                    <label>Clarity
+                        <input type="range" id="eqClarity" min="0" max="100" value="0">
+                        <span id="eqClarityValue">0%</span>
+                    </label>
+                    <label>Ambience
+                        <input type="range" id="eqAmbience" min="0" max="100" value="0">
+                        <span id="eqAmbienceValue">0%</span>
+                    </label>
+                    <label>Surround
+                        <input type="range" id="eqSurround" min="0" max="100" value="0">
+                        <span id="eqSurroundValue">0%</span>
+                    </label>
+                    <label>Dynamic Boost
+                        <input type="range" id="eqDynamic" min="0" max="100" value="0">
+                        <span id="eqDynamicValue">0%</span>
+                    </label>
+                    <label>Bass Boost
+                        <input type="range" id="eqBassBoost" min="0" max="100" value="0">
+                        <span id="eqBassBoostValue">0%</span>
+                    </label>
+                </div>
+
+                <div class="eq-visual-col">
+                    <div class="eq-curve-wrap">
+                        <div class="eq-grid-lines" id="eqGridLines"></div>
+                        <svg id="eqCurveSvg" viewBox="0 0 900 230" preserveAspectRatio="none">
+                            <polygon id="eqCurveArea" points=""></polygon>
+                            <polyline id="eqCurveLine" points=""></polyline>
+                        </svg>
+                        <div id="eqCurveDots" class="eq-curve-dots"></div>
+                    </div>
+                    <div class="eq-band-row" id="eqBandRow"></div>
+                </div>
+            </div>
+
+            <div class="eq-footer-row">
+                <div class="eq-preamp-group">
+                    <span>Preamp</span>
+                    <input type="range" id="eqPreamp" min="-12" max="12" step="0.5" value="0">
+                    <span id="eqPreampValue">0.0 dB</span>
+                </div>
+                <div class="eq-actions">
+                    <button id="eqSaveBtn" type="button">Save Setting</button>
+                    <button id="eqResetBtn" type="button">Reset</button>
+                </div>
+            </div>
+            <p id="eqStatusText" class="eq-status-text"></p>
         </div>
-        <button id="eqResetBtn" type="button">Reset EQ</button>
     </div>
 
-    <audio id="audioPlayer" preload="metadata"></audio>
+    <audio id="audioPlayer" preload="metadata" crossorigin="anonymous"></audio>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="script.js"></script>
 </body>
 </html>
+
