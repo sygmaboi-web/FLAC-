@@ -460,8 +460,16 @@ export const renderAppView = ({ root, state, handlers }) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const action = target.getAttribute('data-action');
-      if (!action) return;
-      root.__appHandlers?.[action]?.(event, target);
+      if (action) {
+        root.__appHandlers?.[action]?.(event, target);
+        return;
+      }
+      if (target.id === 'uploadInput') {
+        root.__appHandlers?.captureUploadFiles?.(event, target);
+      }
+      if (target.id === 'globalSearch') {
+        root.__appHandlers?.search?.(event, target);
+      }
     };
 
     root.addEventListener('input', forwardByDataAction);
@@ -478,5 +486,6 @@ export const renderAppView = ({ root, state, handlers }) => {
     root.__appBound = true;
   }
 };
+
 
 
