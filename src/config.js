@@ -21,3 +21,8 @@ export const hasSupabaseConfig = () => {
     !String(config.supabaseAnonKey).includes('PASTE_SUPABASE_ANON_KEY')
   );
 };
+
+export const hasGeminiConfig = () => {
+  return Boolean(import.meta.env.VITE_GEMINI_API_KEY);
+};
+
