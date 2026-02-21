@@ -445,6 +445,22 @@ export const renderAppView = ({ root, state, handlers }) => {
 
   root.__appHandlers = handlers;
 
+  const uploadInput = root.querySelector('#uploadInput');
+  if (uploadInput && !uploadInput.dataset.bound) {
+    uploadInput.addEventListener('change', event => {
+      root.__appHandlers?.captureUploadFiles?.(event, uploadInput);
+    });
+    uploadInput.dataset.bound = 'true';
+  }
+
+  const searchInput = root.querySelector('#globalSearch');
+  if (searchInput && !searchInput.dataset.bound) {
+    searchInput.addEventListener('input', event => {
+      root.__appHandlers?.search?.(event, searchInput);
+    });
+    searchInput.dataset.bound = 'true';
+  }
+
   if (!root.__appBound) {
     root.addEventListener('click', event => {
       const target = event.target;
@@ -486,6 +502,7 @@ export const renderAppView = ({ root, state, handlers }) => {
     root.__appBound = true;
   }
 };
+
 
 
 
