@@ -354,27 +354,7 @@ export const renderAppView = ({ root, state, handlers }) => {
           ${renderView()}
         </div>
 
-        <section class="eq-section">
-          <div class="eq-header">
-            <h3>Equalizer + Audio Pro</h3>
-            <label class="toggle">
-              <input type="checkbox" data-action="eq-toggle" ${state.eqState.enabled ? 'checked' : ''}>
-              <span>Enabled</span>
-            </label>
-          </div>
-          <div class="eq-grid">${eqSliders(state.eqState)}</div>
-          <div class="eq-footer">
-            <label>Preamp
-              <input type="range" min="-12" max="12" step="0.5" value="${state.eqState.preamp}" data-action="eq-preamp">
-            </label>
-            <label>Crossfade (${state.player.crossfadeSeconds}s)
-              <input type="range" min="0" max="8" step="1" value="${state.player.crossfadeSeconds}" data-action="crossfade">
-            </label>
-          </div>
-          <div class="eq-actions">
-            <button class="btn btn-outline" data-action="save-eq">Save Setting</button>
-            <button class="btn btn-ghost" data-action="reset-eq">Reset</button>
-          </div>
+        <section class="offline-section">
           <div class="offline-status">
             Offline Sync: ${state.offlineSyncState.status} (${state.offlineSyncState.synced}/${state.offlineSyncState.total}) ${state.offlineSyncState.message || ''}
             <button class="btn btn-outline" data-action="sync-offline">Sync All Library</button>
@@ -397,6 +377,9 @@ export const renderAppView = ({ root, state, handlers }) => {
           <button class="icon-btn" data-action="prev"><i class="fas fa-backward-step"></i></button>
           <button class="icon-btn btn-main" data-action="toggle-play"><i class="fas ${state.player.isPlaying ? 'fa-pause' : 'fa-play'}"></i></button>
           <button class="icon-btn" data-action="next"><i class="fas fa-forward-step"></i></button>
+          <button class="icon-btn" data-action="toggle-eq-panel" title="Equalizer">
+            <i class="fas fa-sliders"></i>
+          </button>
         </div>
         <div class="seek-row">
           <span>${formatTime(state.player.currentTime)}</span>
@@ -409,6 +392,28 @@ export const renderAppView = ({ root, state, handlers }) => {
       <div class="volume-box">
         <i class="fas fa-volume-high"></i>
         <input type="range" min="0" max="100" value="${Math.round((state.player.volume || 1) * 100)}" data-action="volume">
+      </div>
+      <div class="eq-popover ${state.eqPanelOpen ? 'is-open' : ''}">
+        <div class="eq-popover-header">
+          <strong>Equalizer + Audio Pro</strong>
+          <label class="toggle">
+            <input type="checkbox" data-action="eq-toggle" ${state.eqState.enabled ? 'checked' : ''}>
+            <span>Enabled</span>
+          </label>
+        </div>
+        <div class="eq-popover-grid">${eqSliders(state.eqState)}</div>
+        <div class="eq-footer">
+          <label>Preamp
+            <input type="range" min="-12" max="12" step="0.5" value="${state.eqState.preamp}" data-action="eq-preamp">
+          </label>
+          <label>Crossfade (${state.player.crossfadeSeconds}s)
+            <input type="range" min="0" max="8" step="1" value="${state.player.crossfadeSeconds}" data-action="crossfade">
+          </label>
+        </div>
+        <div class="eq-actions">
+          <button class="btn btn-outline" data-action="save-eq">Save Setting</button>
+          <button class="btn btn-ghost" data-action="reset-eq">Reset</button>
+        </div>
       </div>
     </footer>
 
@@ -473,4 +478,5 @@ export const renderAppView = ({ root, state, handlers }) => {
     root.__appBound = true;
   }
 };
+
 
