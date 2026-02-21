@@ -1,10 +1,24 @@
 import { formatTime } from '../utils/format.js';
 
 const EQ_BAND_FREQUENCIES = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
+const FX_DEFAULT = { clarity: 0, ambience: 0, surround: 0, dynamic: 0, bass: 0 };
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const dbToGain = db => Math.pow(10, (Number(db) || 0) / 20);
+
+const createImpulseResponse = (context, duration = 2.4, decay = 2.5) => {
+  const rate = context.sampleRate;
+  const length = rate * duration;
+  const impulse = context.createBuffer(2, length, rate);
+  for (let channel = 0; channel < 2; channel += 1) {
+    const data = impulse.getChannelData(channel);
+    for (let i = 0; i < length; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+    }
+  }
+  return impulse;
+};
 
 export class AudioEngine {
   constructor({
@@ -27,6 +41,19 @@ export class AudioEngine {
       preamp: 0,
       bands: EQ_BAND_FREQUENCIES.map(() => 0)
     };
+    this.fxState = { ...FX_DEFAULT };
+
+    this.fxInput = null;
+    this.clarityFilter = null;
+    this.bassFilter = null;
+    this.compressor = null;
+    this.surroundSplitter = null;
+    this.surroundDelayL = null;
+    this.surroundDelayR = null;
+    this.surroundMerger = null;
+    this.ambienceConvolver = null;
+    this.ambienceWetGain = null;
+    this.ambienceDryGain = null;
 
     this.channels = [
       { audio: new Audio(), source: null, songGain: null, loadedSong: null, loadedUrl: null },
@@ -69,7 +96,51 @@ export class AudioEngine {
         return filter;
       });
 
-      eqInput.connect(this.masterGain);
+      this.fxInput = this.audioContext.createGain();
+      eqInput.connect(this.fxInput);
+
+      this.clarityFilter = this.audioContext.createBiquadFilter();
+      this.clarityFilter.type = 'highshelf';
+      this.clarityFilter.frequency.value = 6000;
+      this.clarityFilter.gain.value = 0;
+
+      this.bassFilter = this.audioContext.createBiquadFilter();
+      this.bassFilter.type = 'lowshelf';
+      this.bassFilter.frequency.value = 120;
+      this.bassFilter.gain.value = 0;
+
+      this.compressor = this.audioContext.createDynamicsCompressor();
+      this.compressor.threshold.value = -20;
+      this.compressor.ratio.value = 2;
+      this.compressor.attack.value = 0.003;
+      this.compressor.release.value = 0.25;
+
+      this.surroundSplitter = this.audioContext.createChannelSplitter(2);
+      this.surroundDelayL = this.audioContext.createDelay(0.05);
+      this.surroundDelayR = this.audioContext.createDelay(0.05);
+      this.surroundMerger = this.audioContext.createChannelMerger(2);
+
+      this.ambienceConvolver = this.audioContext.createConvolver();
+      this.ambienceConvolver.buffer = createImpulseResponse(this.audioContext);
+      this.ambienceWetGain = this.audioContext.createGain();
+      this.ambienceDryGain = this.audioContext.createGain();
+
+      this.fxInput.connect(this.clarityFilter);
+      this.clarityFilter.connect(this.bassFilter);
+      this.bassFilter.connect(this.compressor);
+      this.compressor.connect(this.surroundSplitter);
+
+      this.surroundSplitter.connect(this.surroundDelayL, 0);
+      this.surroundSplitter.connect(this.surroundDelayR, 1);
+      this.surroundDelayL.connect(this.surroundMerger, 0, 0);
+      this.surroundDelayR.connect(this.surroundMerger, 0, 1);
+
+      this.surroundMerger.connect(this.ambienceDryGain);
+      this.surroundMerger.connect(this.ambienceConvolver);
+      this.ambienceConvolver.connect(this.ambienceWetGain);
+
+      this.ambienceDryGain.connect(this.masterGain);
+      this.ambienceWetGain.connect(this.masterGain);
       this.masterGain.connect(this.audioContext.destination);
 
       this.channels.forEach(channel => {
@@ -116,6 +187,11 @@ export class AudioEngine {
     this.applyEqState();
   }
 
+  setFxState(fxState) {
+    this.fxState = { ...FX_DEFAULT, ...(fxState || {}) };
+    this.applyFxState();
+  }
+
   applyEqState() {
     if (!this.audioContext || !this.preampGain || !this.eqFilters.length) return;
     const now = this.audioContext.currentTime;
@@ -126,6 +202,40 @@ export class AudioEngine {
       const bandDb = this.eqEnabled ? this.eqState.bands[index] : 0;
       filter.gain.setTargetAtTime(bandDb, now, 0.02);
     });
+
+    this.applyFxState();
+  }
+
+  applyFxState() {
+    if (!this.audioContext || !this.clarityFilter || !this.bassFilter || !this.compressor) return;
+    const now = this.audioContext.currentTime;
+    const fx = this.eqEnabled ? this.fxState : FX_DEFAULT;
+
+    const clarityDb = (Number(fx.clarity) || 0) / 100 * 12;
+    const bassDb = (Number(fx.bass) || 0) / 100 * 12;
+    const ambience = clamp((Number(fx.ambience) || 0) / 100, 0, 1);
+    const surround = clamp((Number(fx.surround) || 0) / 100, 0, 1);
+    const dynamic = clamp((Number(fx.dynamic) || 0) / 100, 0, 1);
+
+    this.clarityFilter.gain.setTargetAtTime(clarityDb, now, 0.02);
+    this.bassFilter.gain.setTargetAtTime(bassDb, now, 0.02);
+
+    const threshold = -10 - dynamic * 40;
+    const ratio = 1 + dynamic * 11;
+    this.compressor.threshold.setTargetAtTime(threshold, now, 0.02);
+    this.compressor.ratio.setTargetAtTime(ratio, now, 0.02);
+
+    if (this.surroundDelayL && this.surroundDelayR) {
+      this.surroundDelayL.delayTime.setTargetAtTime(surround * 0.004, now, 0.02);
+      this.surroundDelayR.delayTime.setTargetAtTime(surround * 0.012, now, 0.02);
+    }
+
+    if (this.ambienceWetGain && this.ambienceDryGain) {
+      const wet = ambience * 0.6;
+      const dry = 1 - wet * 0.5;
+      this.ambienceWetGain.gain.setTargetAtTime(wet, now, 0.02);
+      this.ambienceDryGain.gain.setTargetAtTime(dry, now, 0.02);
+    }
   }
 
   get activeChannel() {
@@ -297,3 +407,4 @@ export class AudioEngine {
     this.onPlaybackState(Boolean(isPlaying && !active.paused));
   }
 }
+
