@@ -1,10 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.4';
 import { corsHeaders } from '../_shared/cors.ts';
 
-type CreateShareInput = {
-  playlist_id: string;
-  expires_in_hours?: number | null;
-  requires_login?: boolean;
+type ResolveInput = {
+  token: string;
 };
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
@@ -22,82 +20,114 @@ Deno.serve(async req => {
     });
   }
 
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'Missing bearer token' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const token = authHeader.replace('Bearer ', '');
-  const {
-    data: { user },
-    error: userError
-  } = await supabase.auth.getUser(token);
-
-  if (userError || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  }
-
-  const body = (await req.json()) as CreateShareInput;
-  if (!body.playlist_id) {
-    return new Response(JSON.stringify({ error: 'playlist_id is required' }), {
+  const body = (await req.json()) as ResolveInput;
+  if (!body.token) {
+    return new Response(JSON.stringify({ error: 'token is required' }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 
-  const { data: playlist, error: playlistError } = await supabase
-    .from('playlists')
-    .select('id, owner_id')
-    .eq('id', body.playlist_id)
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+  const { data: link, error: linkError } = await supabase
+    .from('share_links')
+    .select('id, playlist_id, token, is_active, expires_at, requires_login')
+    .eq('token', body.token)
     .single();
 
-  if (playlistError || !playlist || playlist.owner_id !== user.id) {
+  if (linkError || !link || !link.is_active) {
+    return new Response(JSON.stringify({ error: 'Share link is invalid' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  if (link.expires_at && new Date(link.expires_at).getTime() <= Date.now()) {
+    return new Response(JSON.stringify({ error: 'Share link expired' }), {
+      status: 410,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  if (link.requires_login) {
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Login required for this link' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const userToken = authHeader.replace('Bearer ', '');
+    const {
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser(userToken);
+
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
+  const { data: playlist, error: playlistError } = await supabase
+    .from('playlists')
+    .select('id, owner_id, name, description, cover_path, created_at')
+    .eq('id', link.playlist_id)
+    .single();
+
+  if (playlistError || !playlist) {
     return new Response(JSON.stringify({ error: 'Playlist not found' }), {
       status: 404,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 
-  const linkToken = crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', '');
-  const expiresAt =
-    body.expires_in_hours && body.expires_in_hours > 0
-      ? new Date(Date.now() + body.expires_in_hours * 60 * 60 * 1000).toISOString()
-      : null;
+  const { data: tracksRows, error: tracksError } = await supabase
+    .from('playlist_tracks')
+    .select('position, songs(*)')
+    .eq('playlist_id', playlist.id)
+    .order('position', { ascending: true });
 
-  const { data: link, error: insertError } = await supabase
-    .from('share_links')
-    .insert({
-      playlist_id: playlist.id,
-      token: linkToken,
-      is_active: true,
-      requires_login: Boolean(body.requires_login),
-      expires_at: expiresAt
-    })
-    .select('token, expires_at, requires_login')
-    .single();
-
-  if (insertError || !link) {
-    return new Response(JSON.stringify({ error: insertError?.message ?? 'Failed to create link' }), {
+  if (tracksError) {
+    return new Response(JSON.stringify({ error: tracksError.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 
-  const shareUrl = `${new URL(req.url).origin}/share/${link.token}`;
+  const rawTracks = (tracksRows ?? [])
+    .map(item => ({
+      position: item.position,
+      song: item.songs as Record<string, unknown>
+    }))
+    .filter(item => Boolean(item.song?.audio_path));
+
+  const signedRows = await Promise.all(
+    rawTracks.map(async item => {
+      const path = String(item.song.audio_path);
+      const { data: signedData } = await supabase.storage.from('user-audio').createSignedUrl(path, 60 * 30);
+      let coverUrl: string | null = null;
+      if (item.song.cover_path) {
+        const { data: coverData } = await supabase.storage.from('user-covers').createSignedUrl(String(item.song.cover_path), 60 * 30);
+        coverUrl = coverData?.signedUrl ?? null;
+      }
+      return {
+        ...item.song,
+        position: item.position,
+        signed_url: signedData?.signedUrl ?? null,
+        cover_signed_url: coverUrl
+      };
+    })
+  );
 
   return new Response(
     JSON.stringify({
-      token: link.token,
-      share_url: shareUrl,
-      expires_at: link.expires_at,
-      requires_login: link.requires_login
+      playlist,
+      tracks_with_signed_urls: signedRows
     }),
     { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   );
