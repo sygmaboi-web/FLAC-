@@ -53,6 +53,7 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
 - Enable Google provider.
 - Enable Email/Password.
 - Keep email confirmations enabled.
+- 
 
 
 ## Notes
