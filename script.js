@@ -4,16 +4,111 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const SUPABASE_BUCKET = 'songs';
 const SUPABASE_TABLE = 'songs';
 
+const EQ_STORAGE_KEY = 'kingpin_eq_settings_v3';
+const EQ_BANDS = [
+    { frequency: 101, label: '101 Hz', type: 'lowshelf', q: 0.8 },
+    { frequency: 240, label: '240 Hz', type: 'peaking', q: 1.0 },
+    { frequency: 397, label: '397 Hz', type: 'peaking', q: 1.0 },
+    { frequency: 735, label: '735 Hz', type: 'peaking', q: 1.0 },
+    { frequency: 1360, label: '1.36 kHz', type: 'peaking', q: 1.0 },
+    { frequency: 2520, label: '2.52 kHz', type: 'peaking', q: 1.0 },
+    { frequency: 4670, label: '4.67 kHz', type: 'peaking', q: 1.0 },
+    { frequency: 11760, label: '11.76 kHz', type: 'peaking', q: 1.0 },
+    { frequency: 16000, label: '16.00 kHz', type: 'highshelf', q: 0.8 }
+];
+
+const EQ_PRESETS = {
+    flat: {
+        bands: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        preamp: 0,
+        effects: { clarity: 0, ambience: 0, surround: 0, dynamic: 0, bassBoost: 0 }
+    },
+    bass: {
+        bands: [7, 5, 2, 0, -1, -1, -1, 0, 1],
+        preamp: -2,
+        effects: { clarity: 5, ambience: 0, surround: 10, dynamic: 18, bassBoost: 40 }
+    },
+    vocal: {
+        bands: [-2, -1, 1, 3, 4, 3, 2, 1, 0],
+        preamp: -1,
+        effects: { clarity: 25, ambience: 22, surround: 8, dynamic: 12, bassBoost: 0 }
+    },
+    bright: {
+        bands: [-1, -1, 0, 1, 2, 4, 6, 6, 5],
+        preamp: -2,
+        effects: { clarity: 45, ambience: 15, surround: 10, dynamic: 10, bassBoost: 0 }
+    }
+};
+
 let supabaseClient = null;
 let allSongs = [];
 let currentSongIndex = -1;
 
 let audioContext = null;
 let sourceNode = null;
-let bassFilter = null;
-let midFilter = null;
-let trebleFilter = null;
-let outputGain = null;
+let inputGainNode = null;
+let dryGainNode = null;
+let wetGainNode = null;
+let eqFilters = [];
+let compressorNode = null;
+let preampGainNode = null;
+
+let savedEQPreset = null;
+let eqState = createDefaultEQState();
+let eqStatusTimeout = null;
+
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function createDefaultEQState() {
+    return {
+        enabled: true,
+        preamp: 0,
+        preset: 'flat',
+        bands: EQ_BANDS.map(() => 0),
+        effects: {
+            clarity: 0,
+            ambience: 0,
+            surround: 0,
+            dynamic: 0,
+            bassBoost: 0
+        }
+    };
+}
+
+function normalizeEffects(effects) {
+    return {
+        clarity: clamp(Number(effects?.clarity) || 0, 0, 100),
+        ambience: clamp(Number(effects?.ambience) || 0, 0, 100),
+        surround: clamp(Number(effects?.surround) || 0, 0, 100),
+        dynamic: clamp(Number(effects?.dynamic) || 0, 0, 100),
+        bassBoost: clamp(Number(effects?.bassBoost) || 0, 0, 100)
+    };
+}
+
+function normalizeEQState(candidate) {
+    const fallback = createDefaultEQState();
+    if (!candidate || typeof candidate !== 'object') return fallback;
+
+    return {
+        enabled: Boolean(candidate.enabled),
+        preamp: clamp(Number(candidate.preamp) || 0, -12, 12),
+        preset: typeof candidate.preset === 'string' ? candidate.preset : 'custom',
+        bands: EQ_BANDS.map((_, index) => clamp(Number(candidate.bands?.[index]) || 0, -12, 12)),
+        effects: normalizeEffects(candidate.effects)
+    };
+}
+
+function cloneEQState(state) {
+    return normalizeEQState({
+        enabled: state.enabled,
+        preamp: state.preamp,
+        preset: state.preset,
+        bands: [...state.bands],
+        effects: { ...state.effects }
+    });
+}
 
 function isSupabaseConfigured() {
     return (
@@ -41,6 +136,12 @@ function formatTime(totalSeconds) {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+function formatDb(value) {
+    const num = Number(value) || 0;
+    const sign = num >= 0 ? '+' : '';
+    return `${sign}${num.toFixed(1)} dB`;
+}
+
 function setUploadStatus(text, color = '#b3b3b3') {
     const status = document.getElementById('uploadStatus');
     status.innerText = text;
@@ -50,6 +151,47 @@ function setUploadStatus(text, color = '#b3b3b3') {
 function setSelectedFilesText(text) {
     const selectedFilesText = document.getElementById('selectedFilesText');
     selectedFilesText.innerText = text;
+}
+
+function setEQStatus(text, color = '#95a4bd') {
+    const status = document.getElementById('eqStatusText');
+    if (!status) return;
+
+    status.innerText = text;
+    status.style.color = color;
+
+    if (eqStatusTimeout) clearTimeout(eqStatusTimeout);
+    if (!text) return;
+
+    eqStatusTimeout = setTimeout(() => {
+        if (status.innerText === text) status.innerText = '';
+    }, 2800);
+}
+
+function loadEQStorage() {
+    try {
+        const raw = localStorage.getItem(EQ_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed?.lastState) eqState = normalizeEQState(parsed.lastState);
+        if (parsed?.savedPreset) savedEQPreset = normalizeEQState(parsed.savedPreset);
+    } catch (error) {
+        console.warn('Gagal load EQ setting dari localStorage:', error);
+    }
+}
+
+function persistEQStorage() {
+    try {
+        localStorage.setItem(
+            EQ_STORAGE_KEY,
+            JSON.stringify({
+                lastState: eqState,
+                savedPreset: savedEQPreset
+            })
+        );
+    } catch (error) {
+        console.warn('Gagal simpan EQ setting:', error);
+    }
 }
 
 function toSongView(row) {
@@ -69,6 +211,275 @@ function toSongView(row) {
         created_at: row.created_at
     };
 }
+function buildEQUI() {
+    const gridLines = document.getElementById('eqGridLines');
+    const dots = document.getElementById('eqCurveDots');
+    const bandRow = document.getElementById('eqBandRow');
+
+    if (!gridLines || !dots || !bandRow) return;
+
+    gridLines.innerHTML = '';
+    dots.innerHTML = '';
+    bandRow.innerHTML = '';
+
+    EQ_BANDS.forEach((band, index) => {
+        const line = document.createElement('div');
+        line.className = 'eq-grid-line';
+        line.style.left = `${(index / (EQ_BANDS.length - 1)) * 100}%`;
+        gridLines.appendChild(line);
+
+        const dot = document.createElement('span');
+        dot.className = 'eq-dot';
+        dot.id = `eqDot-${index}`;
+        dots.appendChild(dot);
+
+        const cell = document.createElement('div');
+        cell.className = 'eq-band-cell';
+        cell.innerHTML = `
+            <input type="range" class="eq-band-slider" id="eqBand-${index}" min="-12" max="12" step="0.5" value="0">
+            <span class="eq-band-label">${band.label}</span>
+            <span class="eq-band-value" id="eqBandValue-${index}">+0.0 dB</span>
+        `;
+        bandRow.appendChild(cell);
+    });
+}
+
+function setPresetSelectValue(preset) {
+    const presetSelect = document.getElementById('eqPresetSelect');
+    if (!presetSelect) return;
+
+    const allValues = Array.from(presetSelect.options).map(option => option.value);
+    presetSelect.value = allValues.includes(preset) ? preset : 'custom';
+}
+
+function updateEffectLabels() {
+    const clarity = document.getElementById('eqClarityValue');
+    const ambience = document.getElementById('eqAmbienceValue');
+    const surround = document.getElementById('eqSurroundValue');
+    const dynamic = document.getElementById('eqDynamicValue');
+    const bassBoost = document.getElementById('eqBassBoostValue');
+
+    if (clarity) clarity.innerText = `${Math.round(eqState.effects.clarity)}%`;
+    if (ambience) ambience.innerText = `${Math.round(eqState.effects.ambience)}%`;
+    if (surround) surround.innerText = `${Math.round(eqState.effects.surround)}%`;
+    if (dynamic) dynamic.innerText = `${Math.round(eqState.effects.dynamic)}%`;
+    if (bassBoost) bassBoost.innerText = `${Math.round(eqState.effects.bassBoost)}%`;
+}
+
+function updatePowerUI() {
+    const panel = document.getElementById('eqPanel');
+    const powerBtn = document.getElementById('eqPowerBtn');
+
+    if (panel) panel.classList.toggle('is-bypassed', !eqState.enabled);
+    if (powerBtn) powerBtn.classList.toggle('is-off', !eqState.enabled);
+}
+
+function getEffectOffsets() {
+    const offsets = EQ_BANDS.map(() => 0);
+
+    const clarity = eqState.effects.clarity / 100;
+    offsets[5] += clarity * 2.8;
+    offsets[6] += clarity * 4.2;
+    offsets[7] += clarity * 5.6;
+    offsets[8] += clarity * 4.8;
+
+    const ambience = eqState.effects.ambience / 100;
+    offsets[3] += ambience * 1.5;
+    offsets[4] += ambience * 2.6;
+    offsets[5] += ambience * 2.4;
+    offsets[6] += ambience * 1.6;
+
+    const surround = eqState.effects.surround / 100;
+    offsets[0] += surround * 1.2;
+    offsets[1] += surround * 0.8;
+    offsets[4] -= surround * 1.5;
+    offsets[7] += surround * 2.1;
+    offsets[8] += surround * 2.4;
+
+    const bassBoost = eqState.effects.bassBoost / 100;
+    offsets[0] += bassBoost * 9.2;
+    offsets[1] += bassBoost * 7.3;
+    offsets[2] += bassBoost * 3.8;
+    offsets[3] += bassBoost * 1.7;
+
+    return offsets;
+}
+
+function getEffectiveBandGains() {
+    const offsets = getEffectOffsets();
+    return eqState.bands.map((baseGain, index) => clamp(baseGain + offsets[index], -18, 18));
+}
+
+function renderEQCurve(effectiveGains) {
+    const svg = document.getElementById('eqCurveSvg');
+    const line = document.getElementById('eqCurveLine');
+    const area = document.getElementById('eqCurveArea');
+    if (!svg || !line || !area) return;
+
+    const width = 900;
+    const height = 230;
+    const padX = 36;
+    const topY = 26;
+    const bottomY = 155;
+
+    const points = effectiveGains.map((gain, index) => {
+        const x = padX + (index / (EQ_BANDS.length - 1)) * (width - padX * 2);
+        const y = topY + ((18 - gain) / 36) * (bottomY - topY);
+        return { x, y };
+    });
+
+    line.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+    area.setAttribute(
+        'points',
+        `${padX},${height - 12} ${points.map(point => `${point.x},${point.y}`).join(' ')} ${width - padX},${height - 12}`
+    );
+
+    points.forEach((point, index) => {
+        const dot = document.getElementById(`eqDot-${index}`);
+        if (dot) {
+            dot.style.left = `${(point.x / width) * 100}%`;
+            dot.style.top = `${(point.y / height) * 100}%`;
+        }
+
+        const valueLabel = document.getElementById(`eqBandValue-${index}`);
+        if (valueLabel) valueLabel.innerText = formatDb(effectiveGains[index]);
+    });
+}
+
+function applyDynamicCompressor() {
+    if (!compressorNode) return;
+    const amount = clamp(eqState.effects.dynamic / 100, 0, 1);
+    compressorNode.threshold.value = -20 - amount * 30;
+    compressorNode.knee.value = 20 + amount * 20;
+    compressorNode.ratio.value = 1 + amount * 9;
+    compressorNode.attack.value = 0.003 + amount * 0.02;
+    compressorNode.release.value = 0.15 + amount * 0.5;
+}
+
+function applyEQStateToAudio() {
+    const effectiveGains = getEffectiveBandGains();
+    renderEQCurve(effectiveGains);
+
+    const preampValue = document.getElementById('eqPreampValue');
+    if (preampValue) preampValue.innerText = formatDb(eqState.preamp);
+    updatePowerUI();
+
+    if (!audioContext || !eqFilters.length || !preampGainNode || !wetGainNode || !dryGainNode) return;
+
+    const now = audioContext.currentTime;
+    eqFilters.forEach((filter, index) => {
+        filter.gain.setTargetAtTime(effectiveGains[index], now, 0.02);
+    });
+
+    preampGainNode.gain.setTargetAtTime(Math.pow(10, eqState.preamp / 20), now, 0.02);
+    applyDynamicCompressor();
+
+    if (eqState.enabled) {
+        wetGainNode.gain.setTargetAtTime(1, now, 0.02);
+        dryGainNode.gain.setTargetAtTime(0, now, 0.02);
+    } else {
+        wetGainNode.gain.setTargetAtTime(0, now, 0.02);
+        dryGainNode.gain.setTargetAtTime(1, now, 0.02);
+    }
+}
+
+function syncEQControlsFromState() {
+    setPresetSelectValue(eqState.preset);
+
+    const preamp = document.getElementById('eqPreamp');
+    const eqClarity = document.getElementById('eqClarity');
+    const eqAmbience = document.getElementById('eqAmbience');
+    const eqSurround = document.getElementById('eqSurround');
+    const eqDynamic = document.getElementById('eqDynamic');
+    const eqBassBoost = document.getElementById('eqBassBoost');
+
+    if (preamp) preamp.value = String(eqState.preamp);
+    if (eqClarity) eqClarity.value = String(eqState.effects.clarity);
+    if (eqAmbience) eqAmbience.value = String(eqState.effects.ambience);
+    if (eqSurround) eqSurround.value = String(eqState.effects.surround);
+    if (eqDynamic) eqDynamic.value = String(eqState.effects.dynamic);
+    if (eqBassBoost) eqBassBoost.value = String(eqState.effects.bassBoost);
+
+    EQ_BANDS.forEach((_, index) => {
+        const slider = document.getElementById(`eqBand-${index}`);
+        if (slider) slider.value = String(eqState.bands[index]);
+    });
+
+    updateEffectLabels();
+    applyEQStateToAudio();
+}
+
+function getPresetState(presetName) {
+    const preset = EQ_PRESETS[presetName];
+    if (!preset) return null;
+
+    return normalizeEQState({
+        enabled: true,
+        preamp: preset.preamp,
+        preset: presetName,
+        bands: preset.bands,
+        effects: preset.effects
+    });
+}
+
+function markPresetCustom() {
+    if (eqState.preset !== 'custom') {
+        eqState.preset = 'custom';
+        setPresetSelectValue('custom');
+    }
+}
+
+function applyPreset(presetName) {
+    if (presetName === 'custom') {
+        eqState.preset = 'custom';
+        persistEQStorage();
+        return;
+    }
+
+    const preserveEnabled = eqState.enabled;
+    if (presetName === 'saved') {
+        if (!savedEQPreset) {
+            setEQStatus('Belum ada setting EQ yang disimpan.', '#f59e0b');
+            setPresetSelectValue(eqState.preset);
+            return;
+        }
+        eqState = cloneEQState(savedEQPreset);
+        eqState.enabled = preserveEnabled;
+        eqState.preset = 'saved';
+    } else {
+        const presetState = getPresetState(presetName);
+        if (!presetState) return;
+        eqState = presetState;
+        eqState.enabled = preserveEnabled;
+    }
+
+    syncEQControlsFromState();
+    persistEQStorage();
+    setEQStatus(`Preset ${eqState.preset.toUpperCase()} diterapkan.`, '#1DB954');
+}
+
+function saveCurrentEQSetting() {
+    savedEQPreset = cloneEQState({
+        ...eqState,
+        preset: 'saved'
+    });
+    persistEQStorage();
+    setEQStatus('Setting equalizer berhasil disimpan.', '#1DB954');
+}
+
+function resetEQ() {
+    const preserveEnabled = eqState.enabled;
+    const flat = getPresetState('flat');
+    if (!flat) return;
+
+    eqState = flat;
+    eqState.enabled = preserveEnabled;
+    eqState.preset = 'flat';
+
+    syncEQControlsFromState();
+    persistEQStorage();
+    setEQStatus('Equalizer di-reset ke Flat.', '#9dc5ff');
+}
 
 function initAudioGraph() {
     const player = document.getElementById('audioPlayer');
@@ -77,48 +488,43 @@ function initAudioGraph() {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return;
 
+    player.crossOrigin = 'anonymous';
+
     audioContext = new AudioContextClass();
     sourceNode = audioContext.createMediaElementSource(player);
-    bassFilter = audioContext.createBiquadFilter();
-    midFilter = audioContext.createBiquadFilter();
-    trebleFilter = audioContext.createBiquadFilter();
-    outputGain = audioContext.createGain();
 
-    bassFilter.type = 'lowshelf';
-    bassFilter.frequency.value = 160;
-    midFilter.type = 'peaking';
-    midFilter.frequency.value = 1000;
-    midFilter.Q.value = 1;
-    trebleFilter.type = 'highshelf';
-    trebleFilter.frequency.value = 3500;
+    inputGainNode = audioContext.createGain();
+    dryGainNode = audioContext.createGain();
+    wetGainNode = audioContext.createGain();
+    preampGainNode = audioContext.createGain();
+    compressorNode = audioContext.createDynamicsCompressor();
 
-    sourceNode.connect(bassFilter);
-    bassFilter.connect(midFilter);
-    midFilter.connect(trebleFilter);
-    trebleFilter.connect(outputGain);
-    outputGain.connect(audioContext.destination);
-}
-
-function applyEQValues() {
-    if (!audioContext || !bassFilter || !midFilter || !trebleFilter || !outputGain) return;
-
-    bassFilter.gain.value = Number(document.getElementById('eqBass').value);
-    midFilter.gain.value = Number(document.getElementById('eqMid').value);
-    trebleFilter.gain.value = Number(document.getElementById('eqTreble').value);
-    outputGain.gain.value = Math.pow(10, Number(document.getElementById('eqGain').value) / 20);
-
-    document.getElementById('eqBassValue').innerText = `${bassFilter.gain.value} dB`;
-    document.getElementById('eqMidValue').innerText = `${midFilter.gain.value} dB`;
-    document.getElementById('eqTrebleValue').innerText = `${trebleFilter.gain.value} dB`;
-    document.getElementById('eqGainValue').innerText = `${document.getElementById('eqGain').value} dB`;
-}
-
-function resetEQ() {
-    const ids = ['eqBass', 'eqMid', 'eqTreble', 'eqGain'];
-    ids.forEach(id => {
-        document.getElementById(id).value = '0';
+    eqFilters = EQ_BANDS.map(band => {
+        const filter = audioContext.createBiquadFilter();
+        filter.type = band.type;
+        filter.frequency.value = band.frequency;
+        filter.Q.value = band.q;
+        filter.gain.value = 0;
+        return filter;
     });
-    applyEQValues();
+
+    sourceNode.connect(inputGainNode);
+
+    inputGainNode.connect(dryGainNode);
+    dryGainNode.connect(audioContext.destination);
+
+    let chainNode = inputGainNode;
+    eqFilters.forEach(filter => {
+        chainNode.connect(filter);
+        chainNode = filter;
+    });
+
+    chainNode.connect(compressorNode);
+    compressorNode.connect(preampGainNode);
+    preampGainNode.connect(wetGainNode);
+    wetGainNode.connect(audioContext.destination);
+
+    applyEQStateToAudio();
 }
 
 async function ensureAudioContextRunning() {
@@ -130,6 +536,7 @@ async function ensureAudioContextRunning() {
             console.warn('Gagal resume AudioContext:', error);
         }
     }
+    applyEQStateToAudio();
 }
 
 async function loadSongs() {
@@ -157,7 +564,6 @@ async function loadSongs() {
         listContainer.innerHTML = '<p style="color: #ff6b6b; padding: 20px;">Gagal load lagu dari Supabase.</p>';
     }
 }
-
 function renderSongs(songsArray) {
     const listContainer = document.getElementById('songList');
     listContainer.innerHTML = '';
@@ -225,11 +631,13 @@ async function playSongByIndex(index) {
     currentSongIndex = index;
     const song = allSongs[currentSongIndex];
 
+    player.crossOrigin = 'anonymous';
     player.src = song.url;
     currentSongName.innerText = song.name;
     const typeLabel = song.mime_type ? song.mime_type.replace('audio/', '').toUpperCase() : 'AUDIO';
     currentSongSub.innerText = `Streaming ${typeLabel} dari Supabase`;
     player.load();
+
     await ensureAudioContextRunning();
     player.play().catch(err => console.log('Autoplay dicegah browser:', err));
 
@@ -462,6 +870,111 @@ function switchMenu(menuItem, clickedEl) {
     pageTitle.innerText = menuItem === 'home' ? 'Your FLAC Collection' : 'Your Library';
     renderSongs(allSongs);
 }
+function initEqualizerBindings() {
+    buildEQUI();
+    loadEQStorage();
+    syncEQControlsFromState();
+
+    const presetSelect = document.getElementById('eqPresetSelect');
+    const powerBtn = document.getElementById('eqPowerBtn');
+    const saveBtn = document.getElementById('eqSaveBtn');
+    const resetBtn = document.getElementById('eqResetBtn');
+    const preamp = document.getElementById('eqPreamp');
+    const eqClarity = document.getElementById('eqClarity');
+    const eqAmbience = document.getElementById('eqAmbience');
+    const eqSurround = document.getElementById('eqSurround');
+    const eqDynamic = document.getElementById('eqDynamic');
+    const eqBassBoost = document.getElementById('eqBassBoost');
+
+    EQ_BANDS.forEach((_, index) => {
+        const slider = document.getElementById(`eqBand-${index}`);
+        slider.addEventListener('input', async () => {
+            eqState.bands[index] = clamp(Number(slider.value), -12, 12);
+            markPresetCustom();
+            await ensureAudioContextRunning();
+            applyEQStateToAudio();
+            persistEQStorage();
+        });
+    });
+
+    presetSelect.addEventListener('change', async () => {
+        await ensureAudioContextRunning();
+        applyPreset(presetSelect.value);
+    });
+
+    powerBtn.addEventListener('click', async () => {
+        eqState.enabled = !eqState.enabled;
+        await ensureAudioContextRunning();
+        applyEQStateToAudio();
+        persistEQStorage();
+        setEQStatus(eqState.enabled ? 'Equalizer ON' : 'Equalizer OFF', eqState.enabled ? '#1DB954' : '#f59e0b');
+    });
+
+    preamp.addEventListener('input', async () => {
+        eqState.preamp = clamp(Number(preamp.value), -12, 12);
+        markPresetCustom();
+        await ensureAudioContextRunning();
+        applyEQStateToAudio();
+        persistEQStorage();
+    });
+
+    eqClarity.addEventListener('input', async () => {
+        eqState.effects.clarity = clamp(Number(eqClarity.value), 0, 100);
+        markPresetCustom();
+        updateEffectLabels();
+        await ensureAudioContextRunning();
+        applyEQStateToAudio();
+        persistEQStorage();
+    });
+
+    eqAmbience.addEventListener('input', async () => {
+        eqState.effects.ambience = clamp(Number(eqAmbience.value), 0, 100);
+        markPresetCustom();
+        updateEffectLabels();
+        await ensureAudioContextRunning();
+        applyEQStateToAudio();
+        persistEQStorage();
+    });
+
+    eqSurround.addEventListener('input', async () => {
+        eqState.effects.surround = clamp(Number(eqSurround.value), 0, 100);
+        markPresetCustom();
+        updateEffectLabels();
+        await ensureAudioContextRunning();
+        applyEQStateToAudio();
+        persistEQStorage();
+    });
+
+    eqDynamic.addEventListener('input', async () => {
+        eqState.effects.dynamic = clamp(Number(eqDynamic.value), 0, 100);
+        markPresetCustom();
+        updateEffectLabels();
+        await ensureAudioContextRunning();
+        applyEQStateToAudio();
+        persistEQStorage();
+    });
+
+    eqBassBoost.addEventListener('input', async () => {
+        eqState.effects.bassBoost = clamp(Number(eqBassBoost.value), 0, 100);
+        markPresetCustom();
+        updateEffectLabels();
+        await ensureAudioContextRunning();
+        applyEQStateToAudio();
+        persistEQStorage();
+    });
+
+    saveBtn.addEventListener('click', () => {
+        saveCurrentEQSetting();
+    });
+
+    resetBtn.addEventListener('click', () => {
+        resetEQ();
+    });
+
+    document.addEventListener('pointerdown', () => {
+        ensureAudioContextRunning();
+    }, { once: true });
+}
 
 function initPlayerBindings() {
     const player = document.getElementById('audioPlayer');
@@ -471,8 +984,6 @@ function initPlayerBindings() {
     const seekBar = document.getElementById('seekBar');
     const volumeBar = document.getElementById('volumeBar');
     const fileInput = document.getElementById('fileInput');
-    const eqResetBtn = document.getElementById('eqResetBtn');
-    const eqSliders = ['eqBass', 'eqMid', 'eqTreble', 'eqGain'];
 
     playPauseBtn.addEventListener('click', togglePlayPause);
     prevBtn.addEventListener('click', playPrev);
@@ -496,15 +1007,6 @@ function initPlayerBindings() {
         setSelectedFilesText(`${files.length} file dipilih.`);
     });
 
-    eqSliders.forEach(id => {
-        document.getElementById(id).addEventListener('input', async () => {
-            await ensureAudioContextRunning();
-            applyEQValues();
-        });
-    });
-
-    eqResetBtn.addEventListener('click', resetEQ);
-
     player.addEventListener('timeupdate', syncTimeline);
     player.addEventListener('loadedmetadata', syncTimeline);
     player.addEventListener('play', () => {
@@ -518,7 +1020,7 @@ function initPlayerBindings() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     initPlayerBindings();
-    resetEQ();
+    initEqualizerBindings();
     const configured = initSupabase();
 
     if (!configured) {
@@ -528,3 +1030,4 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await loadSongs();
 });
+
