@@ -14,5 +14,6 @@
   },
   "devDependencies": {
     "vite": "^5.4.11"
+    "vite-plugin-node-polyfills": "^0.22.0"
   }
 }
