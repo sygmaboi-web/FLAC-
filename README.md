@@ -54,6 +54,7 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
 - Enable Email/Password.
 - Keep email confirmations enabled.
 
+
 ## Notes
 
 - This repository now expects SPA route rewrites to `index.html` for `/auth`, `/app`, and `/share/:token`.
