@@ -381,66 +381,266 @@ h1 {
     z-index: 100;
 }
 
-.equalizer-panel {
+.equalizer-shell {
     position: fixed;
+    left: 264px;
     right: 14px;
     bottom: 116px;
-    width: min(340px, calc(100vw - 28px));
-    padding: 12px 14px;
-    border-radius: 14px;
-    background: rgba(11, 18, 29, 0.92);
-    border: 1px solid #273b58;
-    backdrop-filter: blur(8px);
     z-index: 90;
 }
 
-.equalizer-panel h3 {
-    font-size: 13px;
-    margin-bottom: 10px;
+.equalizer-panel {
+    border-radius: 16px;
+    border: 1px solid #1f2634;
+    background: linear-gradient(180deg, #111319 0%, #0d0f14 100%);
+    padding: 14px 16px 12px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.eq-head {
     display: flex;
     align-items: center;
-    gap: 8px;
-    color: #d7e8ff;
-}
-
-.eq-controls {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px 12px;
+    justify-content: space-between;
     margin-bottom: 10px;
 }
 
-.eq-controls label {
-    font-size: 11px;
-    color: #a8bddb;
+.eq-brand {
+    font-size: 23px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #f5f7fb;
+}
+
+.eq-brand i {
+    font-size: 18px;
+    color: #d8dde7;
+}
+
+.eq-power-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid #61273a;
+    background: #1a1017;
+    color: #ff5f8b;
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.2s ease;
+}
+
+.eq-power-btn:hover {
+    transform: translateY(-1px);
+}
+
+.eq-power-btn.is-off {
+    opacity: 0.5;
+}
+
+.equalizer-panel.is-bypassed .eq-curve-wrap {
+    opacity: 0.45;
+}
+
+.eq-select-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 12px;
+}
+
+.eq-select-row select,
+.eq-device-pill {
+    height: 40px;
+    border-radius: 9px;
+    border: 1px solid #232a37;
+    background: #06080b;
+    color: #d2d8e2;
+    font-size: 14px;
+    padding: 0 14px;
+}
+
+.eq-device-pill {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.eq-main-grid {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 14px;
+}
+
+.eq-enhance-col {
+    border-radius: 12px;
+    border: 1px solid #1c222d;
+    background: #0a0c10;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.eq-enhance-col label {
+    font-size: 13px;
+    color: #9ea8b8;
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.eq-controls input {
+.eq-enhance-col input,
+.eq-preamp-group input,
+.eq-band-slider {
+    accent-color: #eceff7;
+}
+
+.eq-enhance-col span {
+    font-size: 11px;
+    color: #d8e0ef;
+}
+
+.eq-visual-col {
+    min-width: 0;
+}
+
+.eq-curve-wrap {
+    position: relative;
+    border-radius: 11px;
+    border: 1px solid #1c222c;
+    background: linear-gradient(180deg, #0a0c10 0%, #0b0d12 100%);
+    height: 180px;
+    overflow: hidden;
+}
+
+.eq-grid-lines {
+    position: absolute;
+    inset: 0;
+}
+
+.eq-grid-line {
+    position: absolute;
+    top: 12%;
+    bottom: 12%;
+    width: 1px;
+    border-left: 1px dashed rgba(213, 219, 232, 0.34);
+}
+
+#eqCurveSvg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+#eqCurveArea {
+    fill: rgba(255, 255, 255, 0.11);
+}
+
+#eqCurveLine {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.86);
+    stroke-width: 3;
+}
+
+.eq-curve-dots {
+    position: absolute;
+    inset: 0;
+}
+
+.eq-dot {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 3px solid rgba(242, 245, 251, 0.78);
+    background: #0b0d11;
+    transform: translate(-50%, -50%);
+}
+
+.eq-band-row {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(9, minmax(66px, 1fr));
+    gap: 8px;
+}
+
+.eq-band-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+}
+
+.eq-band-slider {
     width: 100%;
 }
 
-.eq-controls span {
+.eq-band-label {
+    font-size: 11px;
+    color: #99a5ba;
+    text-align: center;
+}
+
+.eq-band-value {
     font-size: 10px;
-    color: #d8e8ff;
+    color: #d7dfec;
+    text-align: center;
 }
 
-#eqResetBtn {
-    width: 100%;
-    border: 1px solid #314765;
-    background: #0f1929;
-    color: #d7e8ff;
+.eq-footer-row {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.eq-preamp-group {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #ced6e5;
+    font-size: 13px;
+}
+
+#eqPreamp {
+    flex: 1;
+}
+
+#eqPreampValue {
+    min-width: 62px;
+    text-align: right;
+    font-weight: 700;
+}
+
+.eq-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.eq-actions button {
+    border: 1px solid #2e3646;
+    background: #111720;
+    color: #e2e8f3;
     border-radius: 999px;
-    padding: 8px 12px;
+    padding: 8px 14px;
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
 }
 
-#eqResetBtn:hover {
-    background: #18283f;
+.eq-actions button:hover {
+    background: #1a2434;
+}
+
+.eq-status-text {
+    font-size: 11px;
+    color: #95a4bd;
+    margin-top: 8px;
+    min-height: 14px;
 }
 
 .player-info {
@@ -567,9 +767,21 @@ audio {
         gap: 10px;
         padding: 12px 14px;
     }
-    .equalizer-panel {
+    .equalizer-shell {
+        left: 10px;
         right: 10px;
         bottom: 136px;
+    }
+    .eq-main-grid {
+        grid-template-columns: 1fr;
+    }
+    .eq-enhance-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 12px;
+    }
+    .eq-band-row {
+        grid-template-columns: repeat(5, minmax(60px, 1fr));
     }
     .player-info,
     .player-extra {
@@ -617,15 +829,31 @@ audio {
         min-height: 58vh;
     }
 
-    .equalizer-panel {
+    .equalizer-shell {
         left: 8px;
         right: 8px;
-        width: auto;
         bottom: 178px;
     }
 
-    .eq-controls {
+    .eq-select-row {
         grid-template-columns: 1fr;
+    }
+
+    .eq-band-row {
+        grid-template-columns: repeat(3, minmax(58px, 1fr));
+    }
+
+    .eq-footer-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .eq-actions {
+        justify-content: stretch;
+    }
+
+    .eq-actions button {
+        flex: 1;
     }
 
     .search-bar {
@@ -645,3 +873,4 @@ audio {
         font-size: 11px;
     }
 }
+
