@@ -8,6 +8,13 @@ let supabaseClient = null;
 let allSongs = [];
 let currentSongIndex = -1;
 
+let audioContext = null;
+let sourceNode = null;
+let bassFilter = null;
+let midFilter = null;
+let trebleFilter = null;
+let outputGain = null;
+
 function isSupabaseConfigured() {
     return (
         SUPABASE_URL &&
@@ -40,6 +47,11 @@ function setUploadStatus(text, color = '#b3b3b3') {
     status.style.color = color;
 }
 
+function setSelectedFilesText(text) {
+    const selectedFilesText = document.getElementById('selectedFilesText');
+    selectedFilesText.innerText = text;
+}
+
 function toSongView(row) {
     let streamUrl = row.url;
     if (!streamUrl && row.path) {
@@ -56,6 +68,68 @@ function toSongView(row) {
         size_bytes: row.size_bytes || 0,
         created_at: row.created_at
     };
+}
+
+function initAudioGraph() {
+    const player = document.getElementById('audioPlayer');
+    if (!player || audioContext) return;
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    audioContext = new AudioContextClass();
+    sourceNode = audioContext.createMediaElementSource(player);
+    bassFilter = audioContext.createBiquadFilter();
+    midFilter = audioContext.createBiquadFilter();
+    trebleFilter = audioContext.createBiquadFilter();
+    outputGain = audioContext.createGain();
+
+    bassFilter.type = 'lowshelf';
+    bassFilter.frequency.value = 160;
+    midFilter.type = 'peaking';
+    midFilter.frequency.value = 1000;
+    midFilter.Q.value = 1;
+    trebleFilter.type = 'highshelf';
+    trebleFilter.frequency.value = 3500;
+
+    sourceNode.connect(bassFilter);
+    bassFilter.connect(midFilter);
+    midFilter.connect(trebleFilter);
+    trebleFilter.connect(outputGain);
+    outputGain.connect(audioContext.destination);
+}
+
+function applyEQValues() {
+    if (!audioContext || !bassFilter || !midFilter || !trebleFilter || !outputGain) return;
+
+    bassFilter.gain.value = Number(document.getElementById('eqBass').value);
+    midFilter.gain.value = Number(document.getElementById('eqMid').value);
+    trebleFilter.gain.value = Number(document.getElementById('eqTreble').value);
+    outputGain.gain.value = Math.pow(10, Number(document.getElementById('eqGain').value) / 20);
+
+    document.getElementById('eqBassValue').innerText = `${bassFilter.gain.value} dB`;
+    document.getElementById('eqMidValue').innerText = `${midFilter.gain.value} dB`;
+    document.getElementById('eqTrebleValue').innerText = `${trebleFilter.gain.value} dB`;
+    document.getElementById('eqGainValue').innerText = `${document.getElementById('eqGain').value} dB`;
+}
+
+function resetEQ() {
+    const ids = ['eqBass', 'eqMid', 'eqTreble', 'eqGain'];
+    ids.forEach(id => {
+        document.getElementById(id).value = '0';
+    });
+    applyEQValues();
+}
+
+async function ensureAudioContextRunning() {
+    initAudioGraph();
+    if (audioContext && audioContext.state === 'suspended') {
+        try {
+            await audioContext.resume();
+        } catch (error) {
+            console.warn('Gagal resume AudioContext:', error);
+        }
+    }
 }
 
 async function loadSongs() {
@@ -94,7 +168,7 @@ function renderSongs(songsArray) {
     }
 
     songsArray.forEach((song, visibleIndex) => {
-        const globalIndex = allSongs.findIndex(item => item.id === song.id);
+        const globalIndex = allSongs.findIndex(item => String(item.id) === String(song.id));
         const item = document.createElement('div');
         item.className = 'song-item';
         item.dataset.songId = String(song.id);
@@ -109,16 +183,22 @@ function renderSongs(songsArray) {
                 </div>
                 <span class="song-name"></span>
             </div>
-            <div class="col-action"></div>
+            <div class="col-action action-group">
+                <span class="file-badge">${fileType}</span>
+                <button class="delete-btn" title="Hapus lagu"><i class="fas fa-trash"></i></button>
+            </div>
         `;
 
         item.querySelector('.song-name').innerText = song.name;
-        item.querySelector('.col-action').innerText = fileType;
 
         item.onclick = () => playSongByIndex(globalIndex);
         item.querySelector('.play-btn-list').onclick = e => {
             e.stopPropagation();
             playSongByIndex(globalIndex);
+        };
+        item.querySelector('.delete-btn').onclick = async e => {
+            e.stopPropagation();
+            await deleteSong(song.id);
         };
 
         listContainer.appendChild(item);
@@ -130,11 +210,11 @@ function renderSongs(songsArray) {
 function highlightCurrentSong() {
     const activeId = currentSongIndex >= 0 ? allSongs[currentSongIndex]?.id : null;
     document.querySelectorAll('.song-item').forEach(item => {
-        item.classList.toggle('is-playing', Number(item.dataset.songId) === activeId);
+        item.classList.toggle('is-playing', String(item.dataset.songId) === String(activeId));
     });
 }
 
-function playSongByIndex(index) {
+async function playSongByIndex(index) {
     if (index < 0 || index >= allSongs.length) return;
 
     const player = document.getElementById('audioPlayer');
@@ -150,22 +230,24 @@ function playSongByIndex(index) {
     const typeLabel = song.mime_type ? song.mime_type.replace('audio/', '').toUpperCase() : 'AUDIO';
     currentSongSub.innerText = `Streaming ${typeLabel} dari Supabase`;
     player.load();
+    await ensureAudioContextRunning();
     player.play().catch(err => console.log('Autoplay dicegah browser:', err));
 
     playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
     highlightCurrentSong();
 }
 
-function togglePlayPause() {
+async function togglePlayPause() {
     const player = document.getElementById('audioPlayer');
     const playPauseBtn = document.getElementById('playPauseBtn');
 
     if (!player.src) {
-        if (allSongs.length) playSongByIndex(0);
+        if (allSongs.length) await playSongByIndex(0);
         return;
     }
 
     if (player.paused) {
+        await ensureAudioContextRunning();
         player.play().catch(err => console.log('Gagal play:', err));
         playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
     } else {
@@ -212,70 +294,146 @@ function syncTimeline() {
     durationTime.innerText = formatTime(player.duration);
 }
 
+async function uploadSingleSong(file) {
+    const safeName = sanitizeFileName(file.name);
+    const filePath = `public/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+
+    const { error: uploadError } = await supabaseClient.storage
+        .from(SUPABASE_BUCKET)
+        .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: file.type || 'audio/flac'
+        });
+
+    if (uploadError) throw uploadError;
+
+    const { data: publicData } = supabaseClient.storage.from(SUPABASE_BUCKET).getPublicUrl(filePath);
+
+    const { error: insertError } = await supabaseClient
+        .from(SUPABASE_TABLE)
+        .insert({
+            name: file.name,
+            path: filePath,
+            url: publicData.publicUrl,
+            mime_type: file.type || null,
+            size_bytes: file.size
+        });
+
+    if (insertError) throw insertError;
+    return filePath;
+}
+
 async function uploadSong() {
     const fileInput = document.getElementById('fileInput');
-    const file = fileInput.files[0];
     const btn = document.getElementById('uploadBtn');
+    const files = Array.from(fileInput.files || []);
+    const audioFiles = files.filter(file => (file.type || '').startsWith('audio/'));
 
     if (!supabaseClient) {
         setUploadStatus('Config Supabase belum diisi.', '#ff6b6b');
         return;
     }
 
-    if (!file) {
+    if (!files.length) {
         setUploadStatus('Pilih file dulu.', '#ff6b6b');
         return;
     }
 
-    if (!file.type.startsWith('audio/')) {
-        setUploadStatus('File harus audio.', '#ff6b6b');
+    if (!audioFiles.length) {
+        setUploadStatus('Tidak ada file audio yang valid.', '#ff6b6b');
         return;
     }
 
-    btn.innerText = 'Uploading...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
     btn.disabled = true;
-    setUploadStatus('Lagi upload ke Supabase...');
 
-    const safeName = sanitizeFileName(file.name);
-    const filePath = `public/${Date.now()}-${safeName}`;
+    let successCount = 0;
+    let failCount = 0;
+    const uploadedPaths = [];
+
+    for (let i = 0; i < audioFiles.length; i += 1) {
+        const file = audioFiles[i];
+        setUploadStatus(`Upload ${i + 1}/${audioFiles.length}: ${file.name}`);
+        try {
+            const path = await uploadSingleSong(file);
+            uploadedPaths.push(path);
+            successCount += 1;
+        } catch (error) {
+            console.error('Upload gagal:', file.name, error);
+            failCount += 1;
+        }
+    }
+
+    const skippedCount = files.length - audioFiles.length;
+    const color = failCount ? '#f59e0b' : '#1DB954';
+    setUploadStatus(
+        `Selesai. Berhasil: ${successCount}, gagal: ${failCount}, dilewati (bukan audio): ${skippedCount}.`,
+        color
+    );
+
+    fileInput.value = '';
+    setSelectedFilesText('Belum ada file dipilih.');
+
+    await loadSongs();
+    if (uploadedPaths.length) {
+        const uploadedIndex = allSongs.findIndex(song => song.path === uploadedPaths[0]);
+        if (uploadedIndex >= 0) playSongByIndex(uploadedIndex);
+    }
+
+    btn.innerHTML = '<i class="fas fa-upload"></i> Upload ke Supabase';
+    btn.disabled = false;
+}
+
+async function deleteSong(songId) {
+    const song = allSongs.find(item => String(item.id) === String(songId));
+    if (!song) return;
+
+    const isConfirmed = window.confirm(`Hapus "${song.name}" dari Supabase?`);
+    if (!isConfirmed) return;
+
+    setUploadStatus(`Menghapus: ${song.name}...`, '#f59e0b');
 
     try {
-        const { error: uploadError } = await supabaseClient.storage
-            .from(SUPABASE_BUCKET)
-            .upload(filePath, file, {
-                cacheControl: '3600',
-                upsert: false,
-                contentType: file.type || 'audio/flac'
-            });
+        if (song.path) {
+            const { error: removeStorageError } = await supabaseClient
+                .storage
+                .from(SUPABASE_BUCKET)
+                .remove([song.path]);
 
-        if (uploadError) throw uploadError;
+            if (removeStorageError && !String(removeStorageError.message || '').toLowerCase().includes('not found')) {
+                throw removeStorageError;
+            }
+        }
 
-        const { data: publicData } = supabaseClient.storage.from(SUPABASE_BUCKET).getPublicUrl(filePath);
-
-        const { error: insertError } = await supabaseClient
+        const { error: deleteRowError } = await supabaseClient
             .from(SUPABASE_TABLE)
-            .insert({
-                name: file.name,
-                path: filePath,
-                url: publicData.publicUrl,
-                mime_type: file.type || null,
-                size_bytes: file.size
-            });
+            .delete()
+            .eq('id', song.id);
 
-        if (insertError) throw insertError;
+        if (deleteRowError) throw deleteRowError;
 
-        setUploadStatus('Upload sukses.', '#1DB954');
-        fileInput.value = '';
+        const wasCurrentSong = currentSongIndex >= 0 && String(allSongs[currentSongIndex]?.id) === String(song.id);
         await loadSongs();
 
-        const uploadedIndex = allSongs.findIndex(song => song.path === filePath);
-        if (uploadedIndex >= 0) playSongByIndex(uploadedIndex);
+        if (wasCurrentSong) {
+            const player = document.getElementById('audioPlayer');
+            player.pause();
+            player.src = '';
+            currentSongIndex = -1;
+            document.getElementById('currentSongName').innerText = 'Belum ada lagu diputar';
+            document.getElementById('currentSongSub').innerText = 'Public streaming via Supabase';
+            document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play"></i>';
+            syncTimeline();
+        } else if (currentSongIndex >= allSongs.length) {
+            currentSongIndex = allSongs.length - 1;
+            highlightCurrentSong();
+        }
+
+        setUploadStatus('Lagu berhasil dihapus.', '#1DB954');
     } catch (error) {
         console.error(error);
-        setUploadStatus(`Upload gagal: ${error.message || 'unknown error'}`, '#ff6b6b');
-    } finally {
-        btn.innerText = 'Upload ke Supabase';
-        btn.disabled = false;
+        setUploadStatus(`Gagal hapus: ${error.message || 'unknown error'}`, '#ff6b6b');
     }
 }
 
@@ -312,6 +470,9 @@ function initPlayerBindings() {
     const nextBtn = document.getElementById('nextBtn');
     const seekBar = document.getElementById('seekBar');
     const volumeBar = document.getElementById('volumeBar');
+    const fileInput = document.getElementById('fileInput');
+    const eqResetBtn = document.getElementById('eqResetBtn');
+    const eqSliders = ['eqBass', 'eqMid', 'eqTreble', 'eqGain'];
 
     playPauseBtn.addEventListener('click', togglePlayPause);
     prevBtn.addEventListener('click', playPrev);
@@ -326,6 +487,24 @@ function initPlayerBindings() {
         player.volume = volumeBar.value / 100;
     });
 
+    fileInput.addEventListener('change', () => {
+        const files = Array.from(fileInput.files || []);
+        if (!files.length) {
+            setSelectedFilesText('Belum ada file dipilih.');
+            return;
+        }
+        setSelectedFilesText(`${files.length} file dipilih.`);
+    });
+
+    eqSliders.forEach(id => {
+        document.getElementById(id).addEventListener('input', async () => {
+            await ensureAudioContextRunning();
+            applyEQValues();
+        });
+    });
+
+    eqResetBtn.addEventListener('click', resetEQ);
+
     player.addEventListener('timeupdate', syncTimeline);
     player.addEventListener('loadedmetadata', syncTimeline);
     player.addEventListener('play', () => {
@@ -339,6 +518,7 @@ function initPlayerBindings() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     initPlayerBindings();
+    resetEQ();
     const configured = initSupabase();
 
     if (!configured) {
