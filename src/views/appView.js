@@ -434,6 +434,7 @@ export const renderAppView = ({ root, state, handlers }) => {
           <label>Genre <input id="metaGenre"></label>
           <label>Override Cover Art <input id="metaCover" type="file" accept="image/*"></label>
           <div class="modal-actions">
+            <button class="btn btn-outline" type="button" data-action="ai-fill">Auto-fill (AI)</button>
             <button class="btn btn-primary" type="submit">Upload</button>
             <button class="btn btn-ghost" type="button" data-action="cancel-upload-modal">Cancel</button>
           </div>
@@ -502,6 +503,7 @@ export const renderAppView = ({ root, state, handlers }) => {
     root.__appBound = true;
   }
 };
+
 
 
 
