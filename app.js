@@ -17,7 +17,6 @@ const audio = new Audio();
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 const source = audioCtx.createMediaElementSource(audio);
 
-// Analyser buat Tantangan Histogram lu
 const analyser = audioCtx.createAnalyser();
 analyser.fftSize = 256;
 
@@ -47,7 +46,7 @@ const bands = eqFrequencies.map((freq, i) => {
   return filter;
 });
 
-// Routing: Source -> Effects -> EQ -> Master -> Analyser -> Destination
+// Routing
 source.connect(bassNode);
 bassNode.connect(clarityNode);
 clarityNode.connect(dynamicNode);
@@ -57,19 +56,29 @@ lastNode.connect(masterGain);
 lastNode.connect(ambienceNode);
 ambienceNode.connect(ambienceGain);
 ambienceGain.connect(masterGain);
-masterGain.connect(analyser); // Analyser nangkep suara setelah di-EQ
+masterGain.connect(analyser); 
 analyser.connect(audioCtx.destination);
 
-// --- TANTANGAN HISTOGRAM / SPECTRUM VISUALIZER ---
-const canvas = document.getElementById('histogram');
-const canvasCtx = canvas.getContext('2d');
-const bufferLength = analyser.frequencyBinCount;
-const dataArray = new Uint8Array(bufferLength);
+// --- FIX: HISTOGRAM ANTI-SPAM ERROR ---
+let animationId = null; // Buat nyimpen ID animasi biar bisa di-stop
 
 function drawHistogram() {
-  requestAnimationFrame(drawHistogram);
-  // Biar enteng, animasi cuma jalan pas modal FxSound dibuka
-  if (qs('#eqModal').classList.contains('hidden')) return;
+  const canvas = document.getElementById('histogram');
+  if (!canvas) {
+    // Kalau canvas gak ketemu (misal HTML belum siap), stop animasi biar ga spam error
+    cancelAnimationFrame(animationId);
+    return;
+  }
+  
+  const canvasCtx = canvas.getContext('2d');
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+
+  // Muter terus
+  animationId = requestAnimationFrame(drawHistogram);
+  
+  // Kalau modal ketutup, jangan diproses gambarnya biar CPU enteng
+  if (document.querySelector('#eqModal').classList.contains('hidden')) return;
 
   analyser.getByteFrequencyData(dataArray);
   canvasCtx.fillStyle = '#0a0a0a';
@@ -81,24 +90,27 @@ function drawHistogram() {
 
   for (let i = 0; i < bufferLength; i++) {
     barHeight = dataArray[i] / 2;
-    // Warna merah FxSound nge-gradasi ngikutin tinggi bar
     canvasCtx.fillStyle = `rgb(${barHeight + 100}, 40, 70)`;
     canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
     x += barWidth + 1;
   }
 }
-drawHistogram();
 
-// --- UI HELPERS & FX APPLY ---
+// --- UI HELPERS ---
 const qs = sel => document.querySelector(sel);
 const toast = msg => { const el = qs('#toast'); el.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3500); };
-const formatTime = seconds => { if (isNaN(seconds)) return '0:00'; const m = Math.floor(seconds / 60); const s = Math.floor(seconds % 60); return `${m}:${s.toString().padStart(2, '0')}`; };
+const formatTime = seconds => { 
+  if (!seconds || isNaN(seconds)) return '0:00'; 
+  const m = Math.floor(seconds / 60); 
+  const s = Math.floor(seconds % 60); 
+  return `${m}:${s.toString().padStart(2, '0')}`; 
+};
 
 const applyEffects = () => {
-  document.getElementById('fxClarity').value = savedEq.effects[0];
-  document.getElementById('fxAmbience').value = savedEq.effects[1];
-  document.getElementById('fxDynamic').value = savedEq.effects[2];
-  document.getElementById('fxBass').value = savedEq.effects[3];
+  const c = document.getElementById('fxClarity'); if(c) c.value = savedEq.effects[0];
+  const a = document.getElementById('fxAmbience'); if(a) a.value = savedEq.effects[1];
+  const d = document.getElementById('fxDynamic'); if(d) d.value = savedEq.effects[2];
+  const b = document.getElementById('fxBass'); if(b) b.value = savedEq.effects[3];
   
   clarityNode.gain.value = (savedEq.effects[0] / 100) * 15;
   ambienceGain.gain.value = (savedEq.effects[1] / 100) * 0.5;
@@ -106,13 +118,13 @@ const applyEffects = () => {
   bassNode.gain.value = (savedEq.effects[3] / 100) * 15;
 };
 
-// Render 9-Band Vertical Sliders (ANTI-BUG)
+// Render 9-Band Vertical Sliders
 const renderEqSliders = () => {
   const container = qs('#eqSlidersContainer');
+  if(!container) return;
   container.innerHTML = '';
   bands.forEach((band, i) => {
     const wrap = document.createElement('div'); wrap.className = 'eq-band';
-    
     const valLabel = document.createElement('div'); valLabel.className = 'eq-val'; valLabel.textContent = `${Math.round(savedEq.gains[i])} dB`;
     
     const sliderWrap = document.createElement('div'); sliderWrap.className = 'eq-slider-wrapper';
@@ -129,15 +141,18 @@ const renderEqSliders = () => {
     });
 
     sliderWrap.appendChild(slider);
-    
     const hzLabel = document.createElement('div'); hzLabel.className = 'eq-hz'; hzLabel.textContent = eqLabels[i];
-    
     wrap.append(valLabel, sliderWrap, hzLabel);
     container.appendChild(wrap);
   });
 };
 
-window.addEventListener('load', () => { applyEffects(); renderEqSliders(); });
+window.addEventListener('load', () => { 
+  applyEffects(); 
+  renderEqSliders();
+  // Nyalain animasi pas web bener-bener udah beres loading
+  drawHistogram(); 
+});
 
 document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
   input.addEventListener('input', e => {
@@ -157,20 +172,18 @@ const loadData = async () => {
   state.songs = s || []; state.favorites = new Set((f || []).map(item => item.song_id)); state.recent = r || [];
 };
 
-// FIX 100%: DOWNLOAD BLOB Nembus CORS
+// FIX: DOWNLOAD BLOB Nembus CORS & Tahan Banting
 const playSong = async (song, contextList) => {
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   if (!song?.audio_path) return;
   if (contextList) state.currentContext = contextList;
 
   try {
-    toast('Mendownload track audio... 🎧');
+    toast('Memuat audio... 🎧');
     
     const { data, error } = await client.storage.from('user-audio').download(song.audio_path);
-    if (error) throw new Error('Akses ditolak database. Cek RLS Supabase lu!');
-    
-    // Validasi kalau yang didownload itu JSON error, bukan lagu
-    if (data.type.includes('json')) throw new Error('File tidak ditemukan di Storage!');
+    if (error) throw new Error('Akses diblokir Supabase RLS!');
+    if (!data || data.type.includes('json')) throw new Error('File audio rusak atau tidak ditemukan!');
 
     if (state.currentUrl) URL.revokeObjectURL(state.currentUrl);
     const url = URL.createObjectURL(data);
@@ -179,13 +192,17 @@ const playSong = async (song, contextList) => {
     state.currentSong = song;
     qs('#nowTitle').textContent = song.title; qs('#nowSub').textContent = song.artist || 'Unknown';
     audio.src = url; 
-    await audio.play();
     
-    qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
+    // Nunggu audionya beneran siap baru diputer biar ga nyangkut
+    audio.oncanplay = async () => {
+      await audio.play();
+      qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
+    };
+    
     render();
     await client.from('recently_played').insert({ user_id: state.user.id, song_id: song.id, source: 'player' });
   } catch (err) { 
-    toast(err.message || 'Gagal load lagu. RLS error atau file korup.'); 
+    toast(err.message || 'Gagal load lagu.'); 
     console.error(err); 
   }
 };
@@ -213,7 +230,7 @@ const playPrev = () => {
 };
 
 audio.addEventListener('timeupdate', () => {
-  if (audio.duration) {
+  if (audio.duration && !isNaN(audio.duration)) {
     qs('#progressBar').value = (audio.currentTime / audio.duration) * 100;
     qs('#timeCurrent').textContent = formatTime(audio.currentTime);
     qs('#timeTotal').textContent = formatTime(audio.duration);
