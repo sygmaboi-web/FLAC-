@@ -12,9 +12,9 @@ const state = {
   isShuffle: false, repeatMode: 0, openDropdown: null
 };
 
-// --- AUDIO DSP & HISTOGRAM ENGINE (LAZY LOAD ARCHITECTURE) ---
+// --- AUDIO DSP ENGINE (ANTI-LOOP & FAST LOAD) ---
 const audio = new Audio();
-audio.crossOrigin = "anonymous"; 
+audio.crossOrigin = "anonymous"; // Wajib untuk Supabase Signed URL biar nembus Equalizer
 
 let audioCtx = null;
 let source = null;
@@ -33,10 +33,10 @@ try {
   savedEq = { gains: [0,0,0,0,0,0,0,0,0], effects: [0,0,0,0], isOn: true, preset: 'custom' };
   localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
 }
-// Default check
 if (savedEq.isOn === undefined) savedEq.isOn = true;
 if (!savedEq.preset) savedEq.preset = 'custom';
 
+// Inisialisasi Audio (Hanya jalan sekali saat interaksi)
 const initAudioDSP = () => {
   if (audioCtx) return; 
 
@@ -45,9 +45,8 @@ const initAudioDSP = () => {
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 256;
 
-  // Jalur Bypass On/Off
-  dryGain = audioCtx.createGain(); // Polos
-  wetGain = audioCtx.createGain(); // Pake Efek
+  dryGain = audioCtx.createGain(); 
+  wetGain = audioCtx.createGain(); 
   
   dryGain.gain.value = savedEq.isOn ? 0 : 1;
   wetGain.gain.value = savedEq.isOn ? 1 : 0;
@@ -65,11 +64,9 @@ const initAudioDSP = () => {
     return filter;
   });
 
-  // Routing Dry (Bypass kalau OFF)
   source.connect(dryGain);
   dryGain.connect(analyser);
 
-  // Routing Wet (Kalau ON)
   source.connect(wetGain);
   wetGain.connect(bassNode);
   bassNode.connect(clarityNode);
@@ -88,21 +85,24 @@ const initAudioDSP = () => {
   drawHistogram(); 
 };
 
-// --- HISTOGRAM ---
+// --- HISTOGRAM (AMAN DARI INFINITE LOOP CRASH) ---
 let animationId = null;
 
 function drawHistogram() {
-  if (!analyser) return;
-  const canvas = document.getElementById('histogram');
-  if (!canvas) { cancelAnimationFrame(animationId); return; }
+  animationId = requestAnimationFrame(drawHistogram);
   
+  if (!analyser) return;
+
+  const canvas = document.getElementById('histogram');
+  const modal = document.getElementById('eqModal');
+  
+  if (!canvas || !modal) return;
+  // Cuma ngegambar kalau modal lagi kebuka, biar CPU gak meledak
+  if (modal.classList.contains('hidden')) return;
+
   const canvasCtx = canvas.getContext('2d');
   const bufferLength = analyser.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
-
-  animationId = requestAnimationFrame(drawHistogram);
-  
-  if (document.querySelector('#eqModal').classList.contains('hidden')) return;
 
   analyser.getByteFrequencyData(dataArray);
   canvasCtx.fillStyle = '#0a0a0a';
@@ -114,7 +114,6 @@ function drawHistogram() {
 
   for (let i = 0; i < bufferLength; i++) {
     barHeight = dataArray[i] / 2;
-    // Kalau EQ OFF, warnanya abu-abu. Kalau ON, merah FxSound
     if (!savedEq.isOn) {
       canvasCtx.fillStyle = `rgb(${barHeight + 50}, ${barHeight + 50}, ${barHeight + 50})`;
     } else {
@@ -125,7 +124,7 @@ function drawHistogram() {
   }
 }
 
-// --- UI HELPERS & STATE SAVING ---
+// --- UI HELPERS ---
 const qs = sel => document.querySelector(sel);
 const toast = msg => { const el = qs('#toast'); el.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3500); };
 const formatTime = seconds => { 
@@ -169,7 +168,6 @@ const applyEffects = () => {
     bands.forEach((band, i) => { band.gain.value = savedEq.gains[i]; });
   }
 
-  // Pengatur ON/OFF Bypass
   if (dryGain && wetGain) {
     dryGain.gain.value = savedEq.isOn ? 0 : 1;
     wetGain.gain.value = savedEq.isOn ? 1 : 0;
@@ -185,7 +183,6 @@ const renderEqSliders = () => {
     const valLabel = document.createElement('div'); valLabel.className = 'eq-val'; 
     valLabel.textContent = `${savedEq.gains[i] > 0 ? '+' : ''}${Math.round(savedEq.gains[i])} dB`;
     
-    // Bikin Container Jaring & Slider Mentok
     const sliderCont = document.createElement('div'); sliderCont.className = 'eq-slider-container';
     const grid = document.createElement('div'); grid.className = 'eq-grid';
     grid.innerHTML = '<div class="eq-grid-line"></div><div class="eq-grid-line"></div><div class="eq-grid-line center"></div><div class="eq-grid-line"></div><div class="eq-grid-line"></div>';
@@ -193,17 +190,15 @@ const renderEqSliders = () => {
     const slider = document.createElement('input');
     slider.type = 'range'; slider.min = '-12'; slider.max = '12'; slider.step = '0.1'; slider.value = savedEq.gains[i];
     slider.className = 'eq-range';
-    slider.disabled = !savedEq.isOn; // Matiin slider kalau EQ OFF
+    slider.disabled = !savedEq.isOn; 
     
     slider.addEventListener('input', e => {
       const val = Number(e.target.value);
       savedEq.gains[i] = val;
-      savedEq.preset = 'custom'; // Otomatis jadi Custom
+      savedEq.preset = 'custom'; 
       valLabel.textContent = `${val > 0 ? '+' : ''}${Math.round(val)} dB`;
-      
       const select = document.getElementById('presetSelect');
       if(select) select.value = 'custom';
-      
       saveSettings();
     });
 
@@ -218,11 +213,9 @@ const renderEqSliders = () => {
   });
 };
 
-// Initial Load UI
 window.addEventListener('load', () => { 
   updateUIFromSave();
 
-  // Listeners buat FxSound UI Header
   const toggleBtn = document.getElementById('eqToggleBtn');
   if (toggleBtn) {
     toggleBtn.addEventListener('click', () => {
@@ -273,33 +266,29 @@ const loadData = async () => {
   state.songs = s || []; state.favorites = new Set((f || []).map(item => item.song_id)); state.recent = r || [];
 };
 
+// FIX: PLAY SONG (SIGNED URL SUPER CEPAT, ANTI ERROR)
 const playSong = async (song, contextList) => {
   initAudioDSP();
-  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
   if (!song?.audio_path) return;
   if (contextList) state.currentContext = contextList;
 
   try {
-    toast('Memuat audio... 🎧');
+    toast('Memuat lagu... 🎧');
     
-    const { data, error } = await client.storage.from('user-audio').download(song.audio_path);
-    if (error) throw new Error('Akses diblokir Supabase RLS!');
-    if (!data || data.type.includes('json')) throw new Error('File audio rusak atau tidak ditemukan!');
-
-    if (state.currentUrl) URL.revokeObjectURL(state.currentUrl);
-    const url = URL.createObjectURL(data);
-    state.currentUrl = url;
+    const { data, error } = await client.storage.from('user-audio').createSignedUrl(song.audio_path, 60 * 60);
+    if (error || !data?.signedUrl) throw new Error('Akses diblokir Supabase Storage!');
 
     state.currentSong = song;
     qs('#nowTitle').textContent = song.title; qs('#nowSub').textContent = song.artist || 'Unknown';
-    audio.src = url; 
     
-    audio.oncanplay = async () => {
-      await audio.play();
-      qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
-    };
+    // Set URL dan langsung Play
+    audio.src = data.signedUrl; 
+    await audio.play();
     
+    qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
     render();
+    
     await client.from('recently_played').insert({ user_id: state.user.id, song_id: song.id, source: 'player' });
   } catch (err) { 
     toast(err.message || 'Gagal load lagu.'); 
@@ -418,6 +407,21 @@ document.addEventListener('click', async e => {
     if (state.viewContext.length) playSong(state.viewContext[0], state.viewContext);
     return;
   }
+  
+  // Fitur Toggles
+  if (btn.id === 'shuffleBtn') {
+    state.isShuffle = !state.isShuffle;
+    btn.style.color = state.isShuffle ? 'var(--spotify-green)' : 'var(--text-subdued)';
+    return;
+  }
+  if (btn.id === 'loopBtn') {
+    state.repeatMode = (state.repeatMode + 1) % 3;
+    if (state.repeatMode === 0) btn.style.color = 'var(--text-subdued)';
+    else if (state.repeatMode === 1) btn.style.color = 'var(--spotify-green)';
+    else { btn.style.color = 'var(--spotify-green)'; toast('Loop 1 Track Active'); }
+    return;
+  }
+
   if (btn.classList.contains('nav-item')) {
     document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
     btn.classList.add('active'); state.view = btn.dataset.view; render(); return;
