@@ -29,10 +29,14 @@ export const songsClient = {
   async signedUrlBatch(songIds, expiresInSeconds = config.signedUrlExpirySeconds) {
     if (!songIds.length) return [];
     const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (!token) {
+      return [];
+    }
     const { data, error } = await supabase.functions.invoke('signed-song-url-batch', {
-      headers: sessionData?.session?.access_token
-        ? { Authorization: `Bearer ${sessionData.session.access_token}` }
-        : {},
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
       body: {
         song_ids: songIds,
         expires_in_seconds: expiresInSeconds
@@ -179,5 +183,3 @@ export const songsClient = {
     if (error) throw error;
   }
 };
-
-
