@@ -14,12 +14,12 @@ const state = {
 
 // --- AUDIO DSP & HISTOGRAM ENGINE (LAZY LOAD ARCHITECTURE) ---
 const audio = new Audio();
-audio.crossOrigin = "anonymous"; // Tetap butuh buat jaga-jaga kalau nembak signed URL
+audio.crossOrigin = "anonymous"; 
 
 let audioCtx = null;
 let source = null;
 let analyser = null;
-let bassNode, clarityNode, dynamicNode, ambienceNode, ambienceGain, masterGain;
+let dryGain, wetGain, bassNode, clarityNode, dynamicNode, ambienceNode, ambienceGain, masterGain;
 let bands = [];
 
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
@@ -30,18 +30,27 @@ try {
   savedEq = JSON.parse(localStorage.getItem('kp_eq_settings'));
   if (!savedEq || !savedEq.gains) throw new Error("Format lama");
 } catch (e) {
-  savedEq = { gains: [0,0,0,0,0,0,0,0,0], effects: [0,0,0,0] };
+  savedEq = { gains: [0,0,0,0,0,0,0,0,0], effects: [0,0,0,0], isOn: true, preset: 'custom' };
   localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
 }
+// Default check
+if (savedEq.isOn === undefined) savedEq.isOn = true;
+if (!savedEq.preset) savedEq.preset = 'custom';
 
-// Fungsi inisialisasi DSP HANYA saat user klik pertama kali
 const initAudioDSP = () => {
-  if (audioCtx) return; // Kalau udah jalan, jangan bikin lagi
+  if (audioCtx) return; 
 
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   source = audioCtx.createMediaElementSource(audio);
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 256;
+
+  // Jalur Bypass On/Off
+  dryGain = audioCtx.createGain(); // Polos
+  wetGain = audioCtx.createGain(); // Pake Efek
+  
+  dryGain.gain.value = savedEq.isOn ? 0 : 1;
+  wetGain.gain.value = savedEq.isOn ? 1 : 0;
 
   bassNode = audioCtx.createBiquadFilter(); bassNode.type = 'lowshelf'; bassNode.frequency.value = 80;
   clarityNode = audioCtx.createBiquadFilter(); clarityNode.type = 'highshelf'; clarityNode.frequency.value = 5000;
@@ -56,8 +65,13 @@ const initAudioDSP = () => {
     return filter;
   });
 
-  // Routing
-  source.connect(bassNode);
+  // Routing Dry (Bypass kalau OFF)
+  source.connect(dryGain);
+  dryGain.connect(analyser);
+
+  // Routing Wet (Kalau ON)
+  source.connect(wetGain);
+  wetGain.connect(bassNode);
   bassNode.connect(clarityNode);
   clarityNode.connect(dynamicNode);
   let lastNode = dynamicNode;
@@ -67,23 +81,20 @@ const initAudioDSP = () => {
   ambienceNode.connect(ambienceGain);
   ambienceGain.connect(masterGain);
   masterGain.connect(analyser); 
+  
   analyser.connect(audioCtx.destination);
 
   applyEffects();
-  drawHistogram(); // Nyalain histogram pas audio engine udah ready
+  drawHistogram(); 
 };
 
-// --- FIX HISTOGRAM ---
+// --- HISTOGRAM ---
 let animationId = null;
 
 function drawHistogram() {
   if (!analyser) return;
-
   const canvas = document.getElementById('histogram');
-  if (!canvas) {
-    cancelAnimationFrame(animationId);
-    return;
-  }
+  if (!canvas) { cancelAnimationFrame(animationId); return; }
   
   const canvasCtx = canvas.getContext('2d');
   const bufferLength = analyser.frequencyBinCount;
@@ -91,7 +102,6 @@ function drawHistogram() {
 
   animationId = requestAnimationFrame(drawHistogram);
   
-  // Jangan proses kalau modal ketutup (hemat CPU)
   if (document.querySelector('#eqModal').classList.contains('hidden')) return;
 
   analyser.getByteFrequencyData(dataArray);
@@ -104,13 +114,18 @@ function drawHistogram() {
 
   for (let i = 0; i < bufferLength; i++) {
     barHeight = dataArray[i] / 2;
-    canvasCtx.fillStyle = `rgb(${barHeight + 100}, 40, 70)`;
+    // Kalau EQ OFF, warnanya abu-abu. Kalau ON, merah FxSound
+    if (!savedEq.isOn) {
+      canvasCtx.fillStyle = `rgb(${barHeight + 50}, ${barHeight + 50}, ${barHeight + 50})`;
+    } else {
+      canvasCtx.fillStyle = `rgb(${barHeight + 100}, 40, 70)`;
+    }
     canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
     x += barWidth + 1;
   }
 }
 
-// --- UI HELPERS ---
+// --- UI HELPERS & STATE SAVING ---
 const qs = sel => document.querySelector(sel);
 const toast = msg => { const el = qs('#toast'); el.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3500); };
 const formatTime = seconds => { 
@@ -120,56 +135,130 @@ const formatTime = seconds => {
   return `${m}:${s.toString().padStart(2, '0')}`; 
 };
 
-const applyEffects = () => {
-  if (!clarityNode) return; // Aman dari error pas load awal
+const saveSettings = () => {
+  localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
+  applyEffects();
+};
+
+const updateUIFromSave = () => {
   const c = document.getElementById('fxClarity'); if(c) c.value = savedEq.effects[0];
   const a = document.getElementById('fxAmbience'); if(a) a.value = savedEq.effects[1];
   const d = document.getElementById('fxDynamic'); if(d) d.value = savedEq.effects[2];
   const b = document.getElementById('fxBass'); if(b) b.value = savedEq.effects[3];
-  
+
+  const toggleBtn = document.getElementById('eqToggleBtn');
+  if (toggleBtn) {
+    toggleBtn.textContent = savedEq.isOn ? 'ON' : 'OFF';
+    toggleBtn.className = savedEq.isOn ? 'fx-btn-power on' : 'fx-btn-power off';
+  }
+
+  const select = document.getElementById('presetSelect');
+  if (select) select.value = savedEq.preset;
+
+  renderEqSliders();
+};
+
+const applyEffects = () => {
+  if (!clarityNode) return; 
   clarityNode.gain.value = (savedEq.effects[0] / 100) * 15;
   ambienceGain.gain.value = (savedEq.effects[1] / 100) * 0.5;
   dynamicNode.ratio.value = 1 + ((savedEq.effects[2] / 100) * 10);
   bassNode.gain.value = (savedEq.effects[3] / 100) * 15;
+  
+  if (bands.length > 0) {
+    bands.forEach((band, i) => { band.gain.value = savedEq.gains[i]; });
+  }
+
+  // Pengatur ON/OFF Bypass
+  if (dryGain && wetGain) {
+    dryGain.gain.value = savedEq.isOn ? 0 : 1;
+    wetGain.gain.value = savedEq.isOn ? 1 : 0;
+  }
 };
 
-// Render 9-Band Vertical Sliders (Jalan sebelum AudioCtx nyala)
 const renderEqSliders = () => {
   const container = qs('#eqSlidersContainer');
   if(!container) return;
   container.innerHTML = '';
   eqFrequencies.forEach((freq, i) => {
     const wrap = document.createElement('div'); wrap.className = 'eq-band';
-    const valLabel = document.createElement('div'); valLabel.className = 'eq-val'; valLabel.textContent = `${Math.round(savedEq.gains[i])} dB`;
+    const valLabel = document.createElement('div'); valLabel.className = 'eq-val'; 
+    valLabel.textContent = `${savedEq.gains[i] > 0 ? '+' : ''}${Math.round(savedEq.gains[i])} dB`;
     
-    const sliderWrap = document.createElement('div'); sliderWrap.className = 'eq-slider-wrapper';
+    // Bikin Container Jaring & Slider Mentok
+    const sliderCont = document.createElement('div'); sliderCont.className = 'eq-slider-container';
+    const grid = document.createElement('div'); grid.className = 'eq-grid';
+    grid.innerHTML = '<div class="eq-grid-line"></div><div class="eq-grid-line"></div><div class="eq-grid-line center"></div><div class="eq-grid-line"></div><div class="eq-grid-line"></div>';
+
     const slider = document.createElement('input');
     slider.type = 'range'; slider.min = '-12'; slider.max = '12'; slider.step = '0.1'; slider.value = savedEq.gains[i];
     slider.className = 'eq-range';
+    slider.disabled = !savedEq.isOn; // Matiin slider kalau EQ OFF
     
     slider.addEventListener('input', e => {
       const val = Number(e.target.value);
-      if(bands.length > 0) bands[i].gain.value = val;
       savedEq.gains[i] = val;
+      savedEq.preset = 'custom'; // Otomatis jadi Custom
       valLabel.textContent = `${val > 0 ? '+' : ''}${Math.round(val)} dB`;
-      localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
+      
+      const select = document.getElementById('presetSelect');
+      if(select) select.value = 'custom';
+      
+      saveSettings();
     });
 
-    sliderWrap.appendChild(slider);
+    sliderCont.append(grid, slider);
     const hzLabel = document.createElement('div'); hzLabel.className = 'eq-hz'; hzLabel.textContent = eqLabels[i];
-    wrap.append(valLabel, sliderWrap, hzLabel);
+    wrap.append(valLabel, sliderCont, hzLabel);
     container.appendChild(wrap);
+  });
+
+  document.querySelectorAll('.fx-left-panel input').forEach(input => {
+    input.disabled = !savedEq.isOn;
   });
 };
 
+// Initial Load UI
 window.addEventListener('load', () => { 
-  renderEqSliders();
-});
+  updateUIFromSave();
 
-document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
-  input.addEventListener('input', e => {
-    let val = Number(e.target.value);
-    savedEq.effects[i] = val; applyEffects(); localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
+  // Listeners buat FxSound UI Header
+  const toggleBtn = document.getElementById('eqToggleBtn');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      savedEq.isOn = !savedEq.isOn;
+      saveSettings();
+      updateUIFromSave();
+    });
+  }
+
+  const presetSelect = document.getElementById('presetSelect');
+  if (presetSelect) {
+    presetSelect.addEventListener('change', (e) => {
+      const p = e.target.value;
+      savedEq.preset = p;
+      if (p === 'flat') {
+        savedEq.gains = [0,0,0,0,0,0,0,0,0];
+        savedEq.effects = [0,0,0,0];
+      } else if (p === 'bass') {
+        savedEq.gains = [6, 8, 4, 0, 0, 0, 0, 0, 0];
+        savedEq.effects = [0, 0, 0, 50]; 
+      } else if (p === 'clarity') {
+        savedEq.gains = [0, 0, 0, 0, 2, 4, 6, 8, 8];
+        savedEq.effects = [50, 20, 10, 0]; 
+      }
+      saveSettings();
+      updateUIFromSave();
+    });
+  }
+
+  document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
+    input.addEventListener('input', e => {
+      savedEq.effects[i] = Number(e.target.value);
+      savedEq.preset = 'custom';
+      saveSettings();
+      if(presetSelect) presetSelect.value = 'custom';
+    });
   });
 });
 
@@ -184,7 +273,6 @@ const loadData = async () => {
   state.songs = s || []; state.favorites = new Set((f || []).map(item => item.song_id)); state.recent = r || [];
 };
 
-// FIX: BLOB METHOD DIPERKUAT
 const playSong = async (song, contextList) => {
   initAudioDSP();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
@@ -251,11 +339,23 @@ audio.addEventListener('timeupdate', () => {
 });
 
 const renderList = items => {
-  if (!items.length) return '<div class="row" style="color:var(--text-subdued)">Kosong nih, upload lagu dulu.</div>';
+  if (!items.length) return '<div class="row" style="color:var(--text-subdued)">Kosong nih.</div>';
   return items.map((song, idx) => {
     const isActive = state.currentSong?.id === song.id;
     const isLiked = state.favorites.has(song.id);
     const dur = song.duration_seconds ? formatTime(song.duration_seconds) : '--:--';
+    
+    const dropId = `drop-${song.id}-${idx}`;
+    let dropdownHtml = '';
+    if (state.view === 'queue') {
+      dropdownHtml = `<button class="dropdown-item" data-action="remove-queue" data-index="${idx}">Remove from Queue</button>`;
+    } else {
+      dropdownHtml = `
+        <button class="dropdown-item" data-action="queue" data-id="${song.id}">Add to Queue</button>
+        <button class="dropdown-item" data-action="delete" data-id="${song.id}" style="color: #f03355;">Delete from Library</button>
+      `;
+    }
+
     return `
       <div class="row ${isActive ? 'track-active' : ''}" data-id="${song.id}">
         <div class="row-num"><span>${idx + 1}</span></div>
@@ -270,11 +370,11 @@ const renderList = items => {
           </button>
           <div class="duration-text">${dur}</div>
           <div style="position:relative;">
-            <button class="dots-btn" data-action="options" data-id="${song.id}">
+            <button class="dots-btn" data-action="options" data-dropid="${dropId}">
               <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm6.5 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM16 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/></svg>
             </button>
-            <div id="drop-${song.id}" class="dropdown">
-              <button class="dropdown-item" data-action="queue" data-id="${song.id}">Add to Queue</button>
+            <div id="${dropId}" class="dropdown">
+              ${dropdownHtml}
             </div>
           </div>
         </div>
@@ -334,14 +434,43 @@ document.addEventListener('click', async e => {
     else { await client.from('favorites').insert({ user_id: state.user.id, song_id: id }); state.favorites.add(id); toast('Added to Liked Songs'); }
     render();
   }
+  
   if (action === 'options') {
-    if (state.openDropdown) state.openDropdown.classList.remove('show');
-    const drop = document.getElementById(`drop-${id}`);
+    if (state.openDropdown) { state.openDropdown.classList.remove('show'); state.openDropdown = null; }
+    const dropId = btn.dataset.dropid;
+    const drop = document.getElementById(dropId);
     if (drop) { drop.classList.add('show'); state.openDropdown = drop; }
+    return;
   }
+  
   if (action === 'queue') {
     state.queue.push(id); localStorage.setItem('kp_queue', JSON.stringify(state.queue));
-    toast('Added to Queue'); if(state.openDropdown) state.openDropdown.classList.remove('show');
+    toast('Added to Queue'); 
+    if(state.openDropdown) { state.openDropdown.classList.remove('show'); state.openDropdown = null; }
+  }
+
+  if (action === 'remove-queue') {
+    const index = Number(btn.dataset.index);
+    state.queue.splice(index, 1);
+    localStorage.setItem('kp_queue', JSON.stringify(state.queue));
+    toast('Dihapus dari Antrean.');
+    if(state.openDropdown) { state.openDropdown.classList.remove('show'); state.openDropdown = null; }
+    render();
+  }
+
+  if (action === 'delete') {
+    if (confirm('Yakin mau hapus lagu ini permanen dari database?')) {
+      const song = state.songs.find(s => s.id === id);
+      if (song) {
+        toast('Sedang menghapus...');
+        await client.storage.from('user-audio').remove([song.audio_path]);
+        await client.from('songs').delete().eq('id', id);
+        state.queue = state.queue.filter(qId => qId !== id);
+        localStorage.setItem('kp_queue', JSON.stringify(state.queue));
+        await loadData(); render(); toast('Lagu berhasil dihapus! 🗑️');
+      }
+    }
+    if(state.openDropdown) { state.openDropdown.classList.remove('show'); state.openDropdown = null; }
   }
 });
 
