@@ -1,6 +1,6 @@
 /* global supabase */
 
-const SUPABASE_URL = 'https:gizslqqltboughqtzwla.supabase.co';
+const SUPABASE_URL = 'https://gizslqqltboughqtzwla.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpenNscXFsdGJvdWdocXR6d2xhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MDg3NDcsImV4cCI6MjA4NzI4NDc0N30.CYjSPFKNBmYzugfaO-69RzRPNMq60Tp8uPXlHwg31mQ';
 
 const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
