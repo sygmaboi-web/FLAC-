@@ -886,7 +886,7 @@ body {
   position: absolute;
   opacity: 0.001;
   z-index: 5;
-  cursor: pointer;
+  cursor: ns-resize;
 }
 
 .eq-hz {
@@ -901,16 +901,32 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  background: conic-gradient(#f03355 calc(var(--knob-pct) * 1%), #37121d 0%);
+  border: 1px solid #252730;
+  background: conic-gradient(#f03355 calc(var(--knob-pct, 0) * 1%), #2b0f19 0);
   position: relative;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .eq-knob span {
   position: absolute;
-  inset: 5px;
+  inset: 6px;
   border-radius: 999px;
   background: #09090c;
   border: 1px solid #25262b;
+}
+
+.eq-knob::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #f03355;
+  transform: rotate(calc((var(--knob-pct, 0) * 2.4deg) - 120deg)) translateY(-13px);
+  transform-origin: center;
+  box-shadow: 0 0 0 2px rgba(240, 51, 85, 0.2);
 }
 
 .fx-footer {
@@ -955,7 +971,12 @@ body {
   justify-content: center;
   gap: 2px;
   cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.2s ease, color 0.2s ease;
   box-shadow: 0 0 0 8px rgba(5, 5, 7, 0.6), 0 14px 28px rgba(0, 0, 0, 0.55);
+}
+
+.fx-main-power:hover {
+  transform: scale(1.02);
 }
 
 .fx-main-power svg {
@@ -971,8 +992,12 @@ body {
 
 .fx-main-power.off {
   background: #1d1e22;
-  color: #6f717a;
+  color: #7a7d87;
   box-shadow: 0 0 0 8px rgba(5, 5, 7, 0.45);
+}
+
+.fx-main-power.off svg {
+  opacity: 0.7;
 }
 
 .modal {
@@ -1294,6 +1319,8 @@ input[type="range"]:disabled {
     height: 32px;
   }
 }
+
+
 
 
 
