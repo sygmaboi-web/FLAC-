@@ -14,6 +14,8 @@ const state = {
 
 // --- Advanced Audio DSP Engine ---
 const audio = new Audio();
+audio.crossOrigin = "anonymous"; // WAJIB: Fix error CORS Web Audio API Supabase
+
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 const source = audioCtx.createMediaElementSource(audio);
 
@@ -26,7 +28,6 @@ const masterGain = audioCtx.createGain();
 
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
 
-// FIX: Anti-crash kalau ada data lama di localStorage
 let savedEq;
 try {
   savedEq = JSON.parse(localStorage.getItem('kp_eq_settings'));
@@ -70,10 +71,7 @@ const applyEffects = () => {
   bassNode.gain.value = (savedEq.effects[3] / 100) * 15;
 };
 
-// Pastikan fungsi ini dipanggil SAAT halamannya udah ke-load biar elemen inputnya nggak null
-window.addEventListener('load', () => {
-  applyEffects();
-});
+window.addEventListener('load', () => applyEffects());
 
 const qs = sel => document.querySelector(sel);
 const toast = msg => { const el = qs('#toast'); el.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3000); };
@@ -112,7 +110,6 @@ const renderFxGraph = () => {
       const rect = container.getBoundingClientRect();
       let newY = e.clientY - rect.top;
       newY = Math.max(10, Math.min(h - 10, newY)); 
-      
       circle.setAttribute('cy', newY);
       points[i].y = newY;
       drawPath();
@@ -188,16 +185,18 @@ const playSong = async (song, contextList) => {
   if (contextList) state.currentContext = contextList;
 
   try {
-    const { data } = await client.storage.from('user-audio').createSignedUrl(song.audio_path, 60 * 60);
+    const { data, error } = await client.storage.from('user-audio').createSignedUrl(song.audio_path, 60 * 60);
+    if (error) throw error;
     if (!data?.signedUrl) throw new Error('Signed URL failed.');
 
     state.currentSong = song;
     qs('#nowTitle').textContent = song.title; qs('#nowSub').textContent = song.artist || 'Unknown';
-    audio.src = data.signedUrl; await audio.play();
+    audio.src = data.signedUrl; 
+    await audio.play();
     qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
     render();
     await client.from('recently_played').insert({ user_id: state.user.id, song_id: song.id, source: 'player' });
-  } catch (err) { toast('Error memuat lagu.'); console.error(err); }
+  } catch (err) { toast('Gagal muter lagu. Cek konsol atau Storage Supabase!'); console.error(err); }
 };
 
 const playNext = () => {
@@ -239,18 +238,25 @@ const renderList = items => {
     return `
       <div class="row ${isActive ? 'track-active' : ''}" data-id="${song.id}">
         <div class="row-num"><span>${idx + 1}</span></div>
-        <div><div class="track-name">${song.title}</div><div class="track-meta">${song.artist || 'Unknown'}</div></div>
+        <div class="track-info-cell">
+          <div class="track-name">${song.title}</div>
+          <div class="track-meta">${song.artist || 'Unknown'}</div>
+        </div>
         <div class="track-meta truncate">${song.album || 'Single'}</div>
-        <div class="actions">
-          <button class="plus-btn ${isLiked ? 'liked' : ''}" data-action="like" data-id="${song.id}">${isLiked ? '✓' : '+'}</button>
+        <div class="actions-cell">
+          <button class="plus-btn ${isLiked ? 'liked' : ''}" data-action="like" data-id="${song.id}">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="${isLiked ? 'M8 1.314C12.438-3.248 23.534 4.735 8 15-7.534 4.736 3.562-3.248 8 1.314z' : 'M8 2.748l-.717-.737C5.6.281 2.514.878 1.4 3.053c-.523 1.023-.641 2.5.314 4.385.92 1.815 2.834 3.989 6.286 6.357 3.452-2.368 5.365-4.542 6.286-6.357.955-1.886.838-3.362.314-4.385C13.486.878 10.4.28 8.717 2.01L8 2.748zM8 15C-7.333 4.868 3.279-3.04 7.824 1.143c.06.055.119.112.176.171a3.12 3.12 0 0 1 .176-.17C12.72-3.042 23.333 4.867 8 15z'}"/></svg>
+          </button>
+          <div class="duration-text">${dur}</div>
           <div style="position:relative;">
-            <button class="dots-btn" data-action="options" data-id="${song.id}">...</button>
+            <button class="dots-btn" data-action="options" data-id="${song.id}">
+              <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm6.5 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM16 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/></svg>
+            </button>
             <div id="drop-${song.id}" class="dropdown">
               <button class="dropdown-item" data-action="queue" data-id="${song.id}">Add to Queue</button>
             </div>
           </div>
         </div>
-        <div class="track-meta" style="text-align:right;">${dur}</div>
       </div>
     `;
   }).join('');
@@ -279,7 +285,7 @@ document.addEventListener('click', async e => {
   const btn = e.target.closest('button');
   if (!btn) {
     const row = e.target.closest('.row');
-    if (row && !e.target.closest('.actions')) {
+    if (row && !e.target.closest('.actions-cell')) {
       const song = state.songs.find(s => s.id === row.dataset.id);
       if (song) playSong(song, state.viewContext);
     }
