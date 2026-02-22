@@ -6,6 +6,8 @@ const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.05 3.606l13.49 7.788a.7.7 0 0 1 0 1.212L7.05 20.394A.7.7 0 0 1 6 19.788V4.212a.7.7 0 0 1 1.05-.606z"/></svg>';
 const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>';
+const EQ_POWER_ON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 2a1 1 0 1 1 2 0v10a1 1 0 1 1-2 0V2zm5.657 2.757a1 1 0 0 1 1.414-1.414A9 9 0 1 1 5.93 3.343a1 1 0 1 1 1.414 1.414A7 7 0 1 0 12 5a1 1 0 0 1 0-2 8.96 8.96 0 0 1 4.657 1.757z"/></svg>';
+const EQ_POWER_OFF_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 2a1 1 0 1 1 2 0v10a1 1 0 1 1-2 0V2z"/><path d="M12 21a9 9 0 0 1-7.5-13.98 1 1 0 1 1 1.67 1.1A7 7 0 0 0 12 19a7 7 0 0 0 5.83-10.88 1 1 0 1 1 1.68-1.08A9 9 0 0 1 12 21z"/><path d="M4.7 5.3a1 1 0 0 1 1.4 0l12.6 12.6a1 1 0 1 1-1.4 1.4L4.7 6.7a1 1 0 0 1 0-1.4z"/></svg>';
 
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
 const eqLabels = ['101 Hz', '240 Hz', '397 Hz', '735 Hz', '1.36 kHz', '2.52 kHz', '4.67 kHz', '11.76 kHz', '16.00 kHz'];
@@ -564,31 +566,18 @@ function updateEqCurvePath(container) {
   if (!linePath || !fillPath) return;
 
   const width = 1000;
+  const step = width / eqFrequencies.length;
   const points = savedEq.gains.map((gain, idx) => {
-    const x = (idx / (eqFrequencies.length - 1)) * width;
+    // Keep curve aligned with dot centers (center of each EQ column).
+    const x = (idx + 0.5) * step;
     const y = (gainToPercent(gain) / 100) * EQ_CHART_HEIGHT;
     return { x, y };
   });
 
   if (!points.length) return;
 
-  let lineD = '';
-  if (points.length === 1) {
-    lineD = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
-  } else if (points.length === 2) {
-    lineD = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)} L ${points[1].x.toFixed(2)} ${points[1].y.toFixed(2)}`;
-  } else {
-    lineD = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
-    for (let i = 1; i < points.length - 1; i += 1) {
-      const cpX = points[i].x;
-      const cpY = points[i].y;
-      const endX = (points[i].x + points[i + 1].x) / 2;
-      const endY = (points[i].y + points[i + 1].y) / 2;
-      lineD += ` Q ${cpX.toFixed(2)} ${cpY.toFixed(2)} ${endX.toFixed(2)} ${endY.toFixed(2)}`;
-    }
-    const last = points[points.length - 1];
-    lineD += ` T ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
-  }
+  // Use point-to-point line segments so line always passes through each dot.
+  const lineD = `M ${points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L ')}`;
 
   const fillD = `${lineD} L ${width} ${EQ_CHART_HEIGHT} L 0 ${EQ_CHART_HEIGHT} Z`;
   linePath.setAttribute('d', lineD);
@@ -663,8 +652,11 @@ function syncEqControls() {
   const powerBtn = qs('#eqToggleBtn');
   if (powerBtn) {
     powerBtn.classList.toggle('off', !savedEq.isOn);
+    powerBtn.classList.toggle('on', savedEq.isOn);
     powerBtn.setAttribute('aria-pressed', savedEq.isOn ? 'true' : 'false');
     powerBtn.title = savedEq.isOn ? 'FxSound ON' : 'FxSound OFF';
+    const iconWrap = powerBtn.querySelector('.fx-power-icon');
+    if (iconWrap) iconWrap.innerHTML = savedEq.isOn ? EQ_POWER_ON_ICON : EQ_POWER_OFF_ICON;
     const stateLabel = powerBtn.querySelector('.fx-power-state');
     if (stateLabel) stateLabel.textContent = savedEq.isOn ? 'ON' : 'OFF';
   }
@@ -1539,6 +1531,7 @@ async function init() {
 }
 
 init();
+
 
 
 
