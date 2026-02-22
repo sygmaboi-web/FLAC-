@@ -12,6 +12,7 @@ body { font-family: 'Circular', sans-serif; background-color: var(--bg-base); co
 .login-view { display: flex; align-items: center; justify-content: center; height: 100vh; background: #000; z-index: 9999; }
 .login-card { text-align: center; background: var(--bg-elevated); padding: 40px; border-radius: 8px; }
 .brand-large { font-size: 32px; font-weight: 800; color: var(--spotify-green); margin-bottom: 8px; }
+.login-card p { color: var(--text-subdued); margin-bottom: 24px; }
 
 /* Layout & Sidebar */
 .app-layout { display: grid; grid-template-columns: 300px 1fr; grid-template-rows: 1fr 90px; height: 100vh; gap: 8px; padding: 8px; }
@@ -62,6 +63,14 @@ body { font-family: 'Circular', sans-serif; background-color: var(--bg-base); co
 .dropdown.show { display: block; }
 .dropdown-item { background: transparent; border: none; width: 100%; text-align: left; padding: 12px; color: #eaeaea; font-size: 14px; cursor: pointer; border-radius: 2px;}
 .dropdown-item:hover { background: #3e3e3e; }
+
+/* Buttons */
+.btn { padding: 8px 16px; border-radius: 999px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; transition: transform 0.1s; }
+.btn.primary { background-color: var(--text-base); color: #000; }
+.btn.primary:hover { transform: scale(1.04); }
+.btn.ghost { background: transparent; color: var(--text-base); border: 1px solid var(--text-subdued); }
+.btn.ghost:hover { border-color: var(--text-base); transform: scale(1.04);}
+.btn.large { padding: 14px 32px; font-size: 16px; }
 
 /* Bottom Player */
 .player { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: #000; }
@@ -116,7 +125,6 @@ input[type=range]:hover::-webkit-slider-runnable-track { background: var(--spoti
 .fx-label { font-size: 10px; color: #888; font-weight: 600;}
 .fx-value { font-size: 10px; color: var(--fx-red);}
 
-.btn, .upload-btn { cursor: pointer; }
 .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
 .hidden { display: none !important; }
 .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: var(--spotify-green); color: #000; padding: 12px 24px; border-radius: 8px; font-weight: 600; z-index: 2000; }
