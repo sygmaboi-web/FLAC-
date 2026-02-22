@@ -25,6 +25,8 @@ const EQ_PRESETS = {
   bass: { gains: [4, 3, 2, 1, 0, -1, -2, -2, -3], effects: [10, 15, 25, 40] },
   clarity: { gains: [-2, -1, 0, 2, 3, 4, 5, 4, 3], effects: [45, 10, 20, 10] }
 };
+const DOWNLOADER_BRIDGE_URL = 'http://127.0.0.1:4317/api/download';
+const DOWNLOADER_DEFAULT_STATUS = 'Bridge: offline';
 
 const state = {
   user: null,
@@ -97,6 +99,122 @@ function showToast(message) {
     toast.classList.add('hidden');
     toastTimer = null;
   }, 2600);
+}
+
+function setDownloaderStatus(message, tone = '') {
+  const status = qs('#downloaderStatus');
+  if (!status) return;
+  status.textContent = message;
+  status.classList.remove('ok', 'warn');
+  if (tone === 'ok' || tone === 'warn') status.classList.add(tone);
+}
+
+function normalizeDownloadMode(value) {
+  return value === 'playlist' ? 'playlist' : 'single';
+}
+
+function isYouTubeUrl(value) {
+  return /^https?:\/\/(?:[\w-]+\.)?(?:youtube\.com|youtu\.be)\//i.test(String(value || '').trim());
+}
+
+function parsePositiveInteger(value) {
+  const parsed = Number.parseInt(String(value || '').trim(), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function collectDownloaderInput() {
+  return {
+    url: String(qs('#ytUrlInput')?.value || '').trim(),
+    mode: normalizeDownloadMode(qs('#downloadMode')?.value),
+    playlistStart: parsePositiveInteger(qs('#playlistStartInput')?.value),
+    playlistEnd: parsePositiveInteger(qs('#playlistEndInput')?.value)
+  };
+}
+
+function validateDownloaderInput(payload) {
+  if (!payload.url) return 'Paste YouTube URL first.';
+  if (!isYouTubeUrl(payload.url)) return 'URL must be a valid YouTube song or playlist link.';
+  if (payload.mode !== 'playlist' && (payload.playlistStart || payload.playlistEnd)) {
+    return 'Playlist range can only be used in playlist mode.';
+  }
+  if (payload.playlistStart && payload.playlistEnd && payload.playlistEnd < payload.playlistStart) {
+    return 'Playlist end must be >= playlist start.';
+  }
+  return null;
+}
+
+function toPowerShellQuoted(value) {
+  return `'${String(value || '').replaceAll("'", "''")}'`;
+}
+
+function buildDownloaderCommand(payload) {
+  const cmd = [
+    'powershell -ExecutionPolicy Bypass',
+    '-File .\\tools\\download-youtube-flac.ps1',
+    '-Url', toPowerShellQuoted(payload.url)
+  ];
+  if (payload.mode === 'playlist') cmd.push('-Playlist');
+  if (payload.mode === 'playlist' && payload.playlistStart) cmd.push('-PlaylistStart', String(payload.playlistStart));
+  if (payload.mode === 'playlist' && payload.playlistEnd) cmd.push('-PlaylistEnd', String(payload.playlistEnd));
+  return cmd.join(' ');
+}
+
+function syncDownloaderControls() {
+  const isPlaylist = normalizeDownloadMode(qs('#downloadMode')?.value) === 'playlist';
+  qs('#playlistRangeRow')?.classList.toggle('hidden', !isPlaylist);
+}
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', 'readonly');
+  area.style.position = 'absolute';
+  area.style.left = '-9999px';
+  document.body.appendChild(area);
+  area.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(area);
+  return copied;
+}
+
+async function sendDownloadToBridge(payload) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+
+  try {
+    const response = await fetch(DOWNLOADER_BRIDGE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Bridge request failed (${response.status})`);
+    }
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function probeDownloaderBridge() {
+  try {
+    const response = await fetch('http://127.0.0.1:4317/api/health');
+    if (!response.ok) throw new Error(`Health check failed (${response.status})`);
+    const data = await response.json().catch(() => ({}));
+    const runningJobs = Number(data?.runningJobs) || 0;
+    const suffix = runningJobs > 0 ? ` (${runningJobs} running)` : '';
+    setDownloaderStatus(`Bridge: online${suffix}`, 'ok');
+  } catch {
+    setDownloaderStatus(DOWNLOADER_DEFAULT_STATUS);
+  }
 }
 
 function loadQueue() {
@@ -1090,6 +1208,83 @@ function bindUiEvents() {
     await uploadFiles(files);
   });
 
+  qs('#downloadMode')?.addEventListener('change', syncDownloaderControls);
+  syncDownloaderControls();
+  setDownloaderStatus(DOWNLOADER_DEFAULT_STATUS);
+  probeDownloaderBridge();
+
+  qs('#ytUrlInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      qs('#downloadFlacBtn')?.click();
+    }
+  });
+
+  qs('#copyDownloadCmdBtn')?.addEventListener('click', async () => {
+    const payload = collectDownloaderInput();
+    const errorText = validateDownloaderInput(payload);
+    if (errorText) {
+      setDownloaderStatus(errorText, 'warn');
+      showToast(errorText);
+      return;
+    }
+
+    const command = buildDownloaderCommand(payload);
+    try {
+      const copied = await copyToClipboard(command);
+      if (copied) {
+        setDownloaderStatus('Command copied. Paste into terminal.', 'ok');
+        showToast('Download command copied.');
+      } else {
+        setDownloaderStatus('Copy blocked by browser. Copy manually from console.', 'warn');
+        console.info(command);
+        showToast('Copy failed. Command logged to console.');
+      }
+    } catch (error) {
+      console.error(error);
+      setDownloaderStatus('Copy failed. Check browser clipboard permission.', 'warn');
+      showToast('Failed to copy command.');
+    }
+  });
+
+  qs('#downloadFlacBtn')?.addEventListener('click', async () => {
+    const payload = collectDownloaderInput();
+    const errorText = validateDownloaderInput(payload);
+    if (errorText) {
+      setDownloaderStatus(errorText, 'warn');
+      showToast(errorText);
+      return;
+    }
+
+    const btn = qs('#downloadFlacBtn');
+    const originalText = btn?.textContent || 'Download';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Starting...';
+    }
+
+    try {
+      const result = await sendDownloadToBridge(payload);
+      const job = result.jobId ? ` (job ${result.jobId})` : '';
+      setDownloaderStatus(`Bridge: running${job}`, 'ok');
+      showToast(result.message || 'FLAC download started.');
+    } catch (error) {
+      console.error(error);
+      const fallbackCommand = buildDownloaderCommand(payload);
+      const bridgeMessage = error?.name === 'AbortError'
+        ? 'Bridge timeout. Restart local bridge.'
+        : 'Bridge unavailable. Start local bridge.';
+      setDownloaderStatus(bridgeMessage, 'warn');
+      showToast('Bridge offline. Use Copy Command, then run in terminal.');
+      console.info('Fallback command:', fallbackCommand);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+  });
+
   qs('#playBtn')?.addEventListener('click', togglePlayPause);
   qs('#bigPlayBtn')?.addEventListener('click', togglePlayPause);
   qs('#prevBtn')?.addEventListener('click', handlePrev);
@@ -1260,8 +1455,14 @@ function handleSignedOut() {
   if (qs('#timeTotal')) qs('#timeTotal').textContent = '0:00';
   if (qs('#progressBar')) qs('#progressBar').value = '0';
   if (qs('#searchInput')) qs('#searchInput').value = '';
+  if (qs('#ytUrlInput')) qs('#ytUrlInput').value = '';
+  if (qs('#playlistStartInput')) qs('#playlistStartInput').value = '';
+  if (qs('#playlistEndInput')) qs('#playlistEndInput').value = '';
+  if (qs('#downloadMode')) qs('#downloadMode').value = 'single';
 
   setPlayButton(false);
+  syncDownloaderControls();
+  setDownloaderStatus(DOWNLOADER_DEFAULT_STATUS);
   setAuthView(false);
   closePlaylistPicker();
   render();
@@ -1298,4 +1499,5 @@ async function init() {
 }
 
 init();
+
 
