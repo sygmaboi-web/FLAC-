@@ -280,6 +280,17 @@ qs('#searchInput').oninput = e => {
 document.addEventListener('click', async e => {
   const btn = e.target.closest('button');
   if (!btn) return;
+  
+  // Perbaikan: Logika createPlaylist dimasukkan ke sini
+  if (btn.id === 'createPlaylist') {
+    const name = qs('#playlistName').value.trim();
+    if (!name) return;
+    await client.from('playlists').insert({ owner_id: state.user.id, name });
+    state.playlists = await fetchPlaylists();
+    render();
+    return;
+  }
+
   const action = btn.dataset.action;
   const id = btn.dataset.id;
   if (!action) return;
@@ -336,14 +347,6 @@ document.addEventListener('click', async e => {
     render();
   }
 });
-
-qs('#createPlaylist').onclick = async () => {
-  const name = qs('#playlistName').value.trim();
-  if (!name) return;
-  await client.from('playlists').insert({ owner_id: state.user.id, name });
-  state.playlists = await fetchPlaylists();
-  render();
-};
 
 qs('#prevBtn').onclick = () => {
   const idx = state.songs.findIndex(song => song.id === state.currentSong?.id);
