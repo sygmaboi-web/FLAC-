@@ -2,7 +2,9 @@ import { config } from '../config.js';
 
 const DEFAULT_MODEL = 'gemini-1.5-flash';
 const FALLBACK_MODELS = ['gemini-1.5-flash-001', 'gemini-1.5-flash-8b', 'gemini-1.0-pro'];
+const API_BASES = ['https://generativelanguage.googleapis.com/v1beta', 'https://generativelanguage.googleapis.com/v1'];
 let cachedModel = null;
+let cachedBase = null;
 
 const buildPrompt = ({ filename, existing }) => {
   return [
@@ -34,64 +36,77 @@ export const geminiClient = {
 
     const prompt = buildPrompt({ filename, existing });
 
-    const modelsToTry = [];
-    if (cachedModel) modelsToTry.push(cachedModel);
-    modelsToTry.push(model, ...FALLBACK_MODELS.filter(item => item !== model));
+    const buildCandidates = () => {
+      const modelsToTry = [];
+      if (cachedModel) modelsToTry.push(cachedModel);
+      modelsToTry.push(model, ...FALLBACK_MODELS.filter(item => item !== model));
+      return modelsToTry;
+    };
 
-    if (!cachedModel) {
-      try {
-        const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-        const listResponse = await fetch(listUrl);
-        if (listResponse.ok) {
+    if (!cachedModel || !cachedBase) {
+      for (const base of API_BASES) {
+        try {
+          const listUrl = `${base}/models?key=${apiKey}`;
+          const listResponse = await fetch(listUrl);
+          if (!listResponse.ok) continue;
           const listData = await listResponse.json();
           const modelFromApi = (listData.models || []).find(item => (item.supportedGenerationMethods || []).includes('generateContent'));
           if (modelFromApi?.name) {
             cachedModel = modelFromApi.name.replace(/^models\//, '');
-            modelsToTry.unshift(cachedModel);
+            cachedBase = base;
+            break;
           }
+        } catch {
+          // ignore listModels failure, fallback to static list
         }
-      } catch {
-        // ignore listModels failure, fallback to static list
       }
     }
 
+    const modelsToTry = buildCandidates();
+    const basesToTry = cachedBase ? [cachedBase, ...API_BASES.filter(item => item !== cachedBase)] : [...API_BASES];
     let lastError = null;
 
-    for (const candidate of modelsToTry) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidate)}:generateContent?key=${apiKey}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2 }
-        })
-      });
+    for (const base of basesToTry) {
+      for (const candidate of modelsToTry) {
+        const url = `${base}/models/${encodeURIComponent(candidate)}:generateContent?key=${apiKey}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2 }
+          })
+        });
 
-      if (!response.ok) {
-        const text = await response.text();
-        lastError = text;
-        if (response.status === 404) continue;
-        throw new Error(`Gemini error: ${text}`);
+        if (!response.ok) {
+          const text = await response.text();
+          lastError = text;
+          if (response.status === 404) continue;
+          throw new Error(`Gemini error: ${text}`);
+        }
+
+        cachedModel = candidate;
+        cachedBase = base;
+
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const parsed = safeJsonParse(text);
+        if (!parsed) throw new Error('Gemini returned invalid JSON');
+
+        return {
+          title: parsed.title ?? null,
+          artist: parsed.artist ?? null,
+          album: parsed.album ?? null,
+          track_number: Number(parsed.track_number) || null,
+          year: Number(parsed.year) || null,
+          genre: parsed.genre ?? null
+        };
       }
-
-      const data = await response.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const parsed = safeJsonParse(text);
-      if (!parsed) throw new Error('Gemini returned invalid JSON');
-
-      return {
-        title: parsed.title ?? null,
-        artist: parsed.artist ?? null,
-        album: parsed.album ?? null,
-        track_number: Number(parsed.track_number) || null,
-        year: Number(parsed.year) || null,
-        genre: parsed.genre ?? null
-      };
     }
 
     throw new Error(`Gemini error: ${lastError || 'model not found'}`);
   }
 };
+
 
 
