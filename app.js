@@ -17,17 +17,28 @@ const audio = new Audio();
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 const source = audioCtx.createMediaElementSource(audio);
 
-// DSP Nodes
 const bassNode = audioCtx.createBiquadFilter(); bassNode.type = 'lowshelf'; bassNode.frequency.value = 80;
 const clarityNode = audioCtx.createBiquadFilter(); clarityNode.type = 'highshelf'; clarityNode.frequency.value = 5000;
-const dynamicNode = audioCtx.createDynamicsCompressor(); dynamicNode.threshold.value = -24; dynamicNode.ratio.value = 1; // 1 = off
+const dynamicNode = audioCtx.createDynamicsCompressor(); dynamicNode.threshold.value = -24; dynamicNode.ratio.value = 1;
 const ambienceNode = audioCtx.createDelay(); ambienceNode.delayTime.value = 0.05;
 const ambienceGain = audioCtx.createGain(); ambienceGain.gain.value = 0;
 const masterGain = audioCtx.createGain();
 
-// 9-Band Graphic EQ
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
-let savedEq = JSON.parse(localStorage.getItem('kp_eq_settings') || '{"gains":[0,0,0,0,0,0,0,0,0],"hz":[101,240,397,735,1360,2520,4670,11760,16000],"effects":[0,0,0,0]}');
+
+// FIX: Anti-crash kalau ada data lama di localStorage
+let savedEq;
+try {
+  savedEq = JSON.parse(localStorage.getItem('kp_eq_settings'));
+  if (!savedEq || !savedEq.gains) throw new Error("Format lama");
+} catch (e) {
+  savedEq = {
+    "gains": [0,0,0,0,0,0,0,0,0],
+    "hz": [101,240,397,735,1360,2520,4670,11760,16000],
+    "effects": [0,0,0,0]
+  };
+  localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
+}
 
 const bands = eqFrequencies.map((freq, i) => {
   const filter = audioCtx.createBiquadFilter(); filter.type = 'peaking'; filter.Q.value = 1.41;
@@ -35,47 +46,46 @@ const bands = eqFrequencies.map((freq, i) => {
   return filter;
 });
 
-// Routing: Source -> Bass -> Clarity -> Dynamic -> EQ -> (Parallel Ambience) -> Master
+// Routing
 source.connect(bassNode);
 bassNode.connect(clarityNode);
 clarityNode.connect(dynamicNode);
-
 let lastNode = dynamicNode;
 bands.forEach(filter => { lastNode.connect(filter); lastNode = filter; });
-
 lastNode.connect(masterGain);
-lastNode.connect(ambienceNode); // Parallel routing for delay
+lastNode.connect(ambienceNode);
 ambienceNode.connect(ambienceGain);
 ambienceGain.connect(masterGain);
 masterGain.connect(audioCtx.destination);
 
-// Apply saved effects
 const applyEffects = () => {
   document.getElementById('fxClarity').value = savedEq.effects[0];
   document.getElementById('fxAmbience').value = savedEq.effects[1];
   document.getElementById('fxDynamic').value = savedEq.effects[2];
   document.getElementById('fxBass').value = savedEq.effects[3];
   
-  clarityNode.gain.value = (savedEq.effects[0] / 100) * 15; // Max 15dB
-  ambienceGain.gain.value = (savedEq.effects[1] / 100) * 0.5; // Max 50% wet
-  dynamicNode.ratio.value = 1 + ((savedEq.effects[2] / 100) * 10); // Ratio 1 to 11
-  bassNode.gain.value = (savedEq.effects[3] / 100) * 15; // Max +15dB
+  clarityNode.gain.value = (savedEq.effects[0] / 100) * 15;
+  ambienceGain.gain.value = (savedEq.effects[1] / 100) * 0.5;
+  dynamicNode.ratio.value = 1 + ((savedEq.effects[2] / 100) * 10);
+  bassNode.gain.value = (savedEq.effects[3] / 100) * 15;
 };
-applyEffects();
 
-// --- UI Helpers ---
+// Pastikan fungsi ini dipanggil SAAT halamannya udah ke-load biar elemen inputnya nggak null
+window.addEventListener('load', () => {
+  applyEffects();
+});
+
 const qs = sel => document.querySelector(sel);
 const toast = msg => { const el = qs('#toast'); el.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3000); };
 const formatTime = seconds => { if (isNaN(seconds)) return '0:00'; const m = Math.floor(seconds / 60); const s = Math.floor(seconds % 60); return `${m}:${s.toString().padStart(2, '0')}`; };
 
-// --- FxSound UI (Graph & Knobs) ---
 const renderFxGraph = () => {
   const container = qs('#eqGraphContainer');
   const w = container.clientWidth || 600; const h = 200;
   
   let points = savedEq.gains.map((gain, i) => ({
     x: (w / 10) * (i + 1),
-    y: h / 2 - (gain * (h / 24)) // 24dB range (+12 to -12)
+    y: h / 2 - (gain * (h / 24)) 
   }));
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -84,9 +94,9 @@ const renderFxGraph = () => {
   svg.appendChild(path);
 
   const drawPath = () => {
-    let d = `M 0 ${h/2} `; // start
+    let d = `M 0 ${h/2} `;
     points.forEach(p => d += `L ${p.x} ${p.y} `);
-    d += `L ${w} ${h/2}`; // end
+    d += `L ${w} ${h/2}`;
     path.setAttribute('d', d);
   };
 
@@ -101,13 +111,12 @@ const renderFxGraph = () => {
       if (!isDragging) return;
       const rect = container.getBoundingClientRect();
       let newY = e.clientY - rect.top;
-      newY = Math.max(10, Math.min(h - 10, newY)); // clamp
+      newY = Math.max(10, Math.min(h - 10, newY)); 
       
       circle.setAttribute('cy', newY);
       points[i].y = newY;
       drawPath();
       
-      // Convert Y to Gain (-12 to +12)
       let gain = ((h/2 - newY) / (h/2)) * 12;
       bands[i].gain.value = gain;
       savedEq.gains[i] = gain;
@@ -143,8 +152,8 @@ const renderFxKnobs = () => {
     knobCont.addEventListener('mousedown', e => { isDragging = true; startY = e.clientY; startVal = savedEq.hz[i]; });
     window.addEventListener('mousemove', e => {
       if (!isDragging) return;
-      let val = startVal + (startY - e.clientY) * 50; // Sensitivity
-      val = Math.max(20, Math.min(20000, val)); // 20Hz - 20kHz
+      let val = startVal + (startY - e.clientY) * 50; 
+      val = Math.max(20, Math.min(20000, val)); 
       updateKnob(val); band.frequency.value = val; savedEq.hz[i] = val;
     });
     window.addEventListener('mouseup', () => {
@@ -154,7 +163,6 @@ const renderFxKnobs = () => {
   });
 };
 
-// Left Panel Effects Listeners
 document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
   input.addEventListener('input', e => {
     let val = Number(e.target.value);
@@ -164,7 +172,6 @@ document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
   });
 });
 
-// --- Core App ---
 const loadData = async () => {
   if (!state.user) return;
   const [{ data: s }, { data: f }, { data: r }] = await Promise.all([
@@ -182,7 +189,7 @@ const playSong = async (song, contextList) => {
 
   try {
     const { data } = await client.storage.from('user-audio').createSignedUrl(song.audio_path, 60 * 60);
-    if (!data?.signedUrl) throw new Error('Signed URL failed. Cek RLS Bucket lu!');
+    if (!data?.signedUrl) throw new Error('Signed URL failed.');
 
     state.currentSong = song;
     qs('#nowTitle').textContent = song.title; qs('#nowSub').textContent = song.artist || 'Unknown';
@@ -190,7 +197,7 @@ const playSong = async (song, contextList) => {
     qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
     render();
     await client.from('recently_played').insert({ user_id: state.user.id, song_id: song.id, source: 'player' });
-  } catch (err) { toast('Error memuat lagu. Cek RLS Storage di Supabase!'); console.error(err); }
+  } catch (err) { toast('Error memuat lagu.'); console.error(err); }
 };
 
 const playNext = () => {
@@ -209,6 +216,11 @@ const playNext = () => {
   }
 };
 audio.addEventListener('ended', playNext);
+const playPrev = () => {
+  if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+  let idx = state.currentContext.findIndex(s => s.id === state.currentSong?.id);
+  if (idx > 0) playSong(state.currentContext[idx - 1], state.currentContext);
+};
 
 audio.addEventListener('timeupdate', () => {
   if (audio.duration) {
@@ -223,7 +235,6 @@ const renderList = items => {
   return items.map((song, idx) => {
     const isActive = state.currentSong?.id === song.id;
     const isLiked = state.favorites.has(song.id);
-    // Kita asumsikan duration ada di DB (atau placeholder)
     const dur = song.duration_seconds ? formatTime(song.duration_seconds) : '--:--';
     return `
       <div class="row ${isActive ? 'track-active' : ''}" data-id="${song.id}">
@@ -258,18 +269,15 @@ const render = () => {
   qs('#viewContent').innerHTML = renderList(list);
 };
 
-// Global Listeners
 document.addEventListener('click', async e => {
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   
-  // Tutup dropdown kalau klik di luar
   if (!e.target.closest('.dots-btn') && state.openDropdown) {
     state.openDropdown.classList.remove('show'); state.openDropdown = null;
   }
 
   const btn = e.target.closest('button');
   if (!btn) {
-    // Klik row buat play (kalau bukan ngeklik button action)
     const row = e.target.closest('.row');
     if (row && !e.target.closest('.actions')) {
       const song = state.songs.find(s => s.id === row.dataset.id);
@@ -287,7 +295,6 @@ document.addEventListener('click', async e => {
     btn.classList.add('active'); state.view = btn.dataset.view; render(); return;
   }
 
-  // FxSound Modals
   if (btn.id === 'eqBtn') { renderFxGraph(); renderFxKnobs(); qs('#eqModal').classList.remove('hidden'); return; }
   if (btn.dataset.action === 'close-eq') return qs('#eqModal').classList.add('hidden');
   
@@ -310,7 +317,6 @@ document.addEventListener('click', async e => {
   }
 });
 
-// Playback controls
 qs('#playBtn').onclick = async () => {
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   if (audio.paused && state.currentSong) { await audio.play(); qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`; }
@@ -320,7 +326,6 @@ qs('#prevBtn').onclick = playPrev; qs('#nextBtn').onclick = playNext;
 qs('#progressBar').oninput = e => { if (audio.duration) audio.currentTime = (e.target.value / 100) * audio.duration; };
 qs('#volume').oninput = e => masterGain.gain.value = e.target.value / 100;
 
-// Init
 const checkAuthAndRenderUI = () => {
   if (state.user) { qs('#loginView').classList.add('hidden'); qs('#mainApp').classList.remove('hidden'); qs('#userEmail').textContent = state.user.email; render(); }
   else { qs('#loginView').classList.remove('hidden'); qs('#mainApp').classList.add('hidden'); }
