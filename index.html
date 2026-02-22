@@ -64,28 +64,6 @@
           <div id="playlistList" class="playlist-list"></div>
         </div>
 
-        <div class="downloader-section card-bg">
-          <div class="section-heading">FLAC Downloader</div>
-          <div class="downloader-form">
-            <input id="ytUrlInput" type="url" class="downloader-input" placeholder="Paste YouTube song or playlist URL" />
-            <div class="downloader-row">
-              <select id="downloadMode" class="downloader-select">
-                <option value="single">Single</option>
-                <option value="playlist">Playlist</option>
-              </select>
-              <button id="downloadFlacBtn" class="btn primary btn-sm download-btn">Download</button>
-            </div>
-            <div id="playlistRangeRow" class="downloader-range-row hidden">
-              <input id="playlistStartInput" type="number" min="1" class="downloader-input" placeholder="Start #" />
-              <input id="playlistEndInput" type="number" min="1" class="downloader-input" placeholder="End #" />
-            </div>
-            <div class="downloader-row compact">
-              <button id="copyDownloadCmdBtn" class="btn ghost btn-sm">Copy Command</button>
-              <span id="downloaderStatus" class="downloader-status">Bridge: offline</span>
-            </div>
-          </div>
-        </div>
-
         <div class="sidebar-footer">
           <label class="btn ghost upload-btn"><input id="fileInput" type="file" multiple accept="audio/*" class="hidden" />Upload Audio</label>
           <div class="user-box">
@@ -155,29 +133,44 @@
     <div id="eqModal" class="modal hidden">
       <div class="fx-modal">
         <div class="fx-header">
-          <div class="fx-brand"><svg viewBox="0 0 24 24" fill="#f03355" width="20"><path d="M3 22V8h4v14H3zm7 0V2h4v20h-4zm7 0v-8h4v8h-4z"/></svg>FxSound Engine</div>
-          <div class="fx-presets">
-            <button id="eqToggleBtn" class="fx-btn-power">ON</button>
-            <select id="presetSelect" class="fx-select">
-              <option value="custom">Custom</option>
-              <option value="flat">Flat</option>
-              <option value="bass">Bass Boost</option>
-              <option value="clarity">High Clarity</option>
-            </select>
-            <button class="fx-close" data-action="close-eq">&times;</button>
-          </div>
+          <div class="fx-brand"><svg viewBox="0 0 24 24" fill="#f03355" width="16"><path d="M3 22V8h4v14H3zm7 0V2h4v20h-4zm7 0v-8h4v8h-4z"/></svg>FxSound</div>
+          <button class="fx-close" data-action="close-eq">&times;</button>
         </div>
 
-        <div class="histogram-container"><canvas id="histogram" width="800" height="120"></canvas></div>
+        <div class="fx-device-row">
+          <select id="presetSelect" class="fx-select fx-device-select">
+            <option value="custom">Lagu Lawas</option>
+            <option value="flat">Flat</option>
+            <option value="bass">Bass Boost</option>
+            <option value="clarity">High Clarity</option>
+          </select>
+          <select id="fxOutputSelect" class="fx-select fx-device-select">
+            <option value="default">Headphones (Realtek(R) Audio)</option>
+            <option value="speaker">Speakers (Default Device)</option>
+          </select>
+        </div>
 
         <div class="fx-layout">
           <div class="fx-left-panel">
             <div class="fx-effect"><label>Clarity</label><input type="range" id="fxClarity" min="0" max="100" value="0" /></div>
             <div class="fx-effect"><label>Ambience</label><input type="range" id="fxAmbience" min="0" max="100" value="0" /></div>
+            <div class="fx-effect"><label>Surround Sound</label><input type="range" id="fxSurround" min="0" max="100" value="0" /></div>
             <div class="fx-effect"><label>Dynamic Boost</label><input type="range" id="fxDynamic" min="0" max="100" value="0" /></div>
             <div class="fx-effect"><label>Bass Boost</label><input type="range" id="fxBass" min="0" max="100" value="0" /></div>
           </div>
           <div class="fx-right-panel" id="eqSlidersContainer"></div>
+        </div>
+
+        <div class="fx-footer">
+          <button class="fx-circle-btn" type="button" aria-label="Menu">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 4.75A.75.75 0 0 1 2.75 4h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75zm0 3.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8zm0 3.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75z"/></svg>
+          </button>
+          <button id="eqToggleBtn" class="fx-main-power" type="button" aria-label="Toggle FxSound">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 2a1 1 0 1 1 2 0v10a1 1 0 1 1-2 0V2zm5.657 2.757a1 1 0 0 1 1.414-1.414A9 9 0 1 1 5.93 3.343a1 1 0 1 1 1.414 1.414A7 7 0 1 0 12 5a1 1 0 0 1 0-2 8.96 8.96 0 0 1 4.657 1.757z"/></svg>
+          </button>
+          <button class="fx-circle-btn" type="button" aria-label="Expand">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 1a.5.5 0 0 1 .5.5V3h1.5a.5.5 0 0 1 0 1H4.5A1.5 1.5 0 0 1 3 2.5V.5a.5.5 0 0 1 .5-.5h1zm7.5 0a.5.5 0 0 1 .5.5v2A1.5 1.5 0 0 1 11 5h-2a.5.5 0 0 1 0-1h1.5V1.5a.5.5 0 0 1 .5-.5h1zm-8 9a.5.5 0 0 1 .5.5V12h2a.5.5 0 0 1 0 1H4.5A1.5 1.5 0 0 1 3 11.5v-2a.5.5 0 0 1 1 0V10zm8 0a.5.5 0 0 1 .5.5v2A1.5 1.5 0 0 1 11 14h-2a.5.5 0 0 1 0-1h2v-2.5a.5.5 0 0 1 .5-.5h.5z"/></svg>
+          </button>
         </div>
       </div>
     </div>
@@ -195,5 +188,6 @@
     <div id="toast" class="toast hidden"></div>
   </body>
 </html>
+
 
 
