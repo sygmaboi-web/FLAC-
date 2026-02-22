@@ -19,6 +19,13 @@ const EQ_PRESETS = {
   bass: { gains: [4, 3, 2, 1, 0, -1, -2, -2, -3], effects: [10, 10, 15, 25, 40] },
   clarity: { gains: [-2, -1, 0, 2, 3, 4, 5, 4, 3], effects: [45, 10, 25, 20, 10] }
 };
+const EQ_PRESET_LABELS = {
+  custom: 'Custom',
+  flat: 'Flat',
+  bass: 'Bass Boost',
+  clarity: 'High Clarity'
+};
+const EQ_USER_PRESETS_KEY = 'kp_eq_user_presets';
 
 const state = {
   user: null,
@@ -42,6 +49,7 @@ audio.crossOrigin = 'anonymous';
 audio.preload = 'metadata';
 
 let savedEq = readStoredEq();
+let userEqPresets = readUserEqPresets();
 let audioCtx = null;
 let analyser = null;
 let dryGainNode = null;
@@ -128,6 +136,127 @@ function readStoredEq() {
 
 function persistEq() {
   localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
+}
+
+function readUserEqPresets() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EQ_USER_PRESETS_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+    const normalized = {};
+    Object.entries(parsed).forEach(([id, rawPreset]) => {
+      if (typeof id !== 'string' || !rawPreset || typeof rawPreset !== 'object') return;
+      const name = String(rawPreset.name || '').trim();
+      if (!name) return;
+      const preset = normalizeEqSettings(rawPreset);
+      normalized[id] = {
+        name,
+        gains: preset.gains,
+        effects: preset.effects
+      };
+    });
+
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function persistUserEqPresets() {
+  localStorage.setItem(EQ_USER_PRESETS_KEY, JSON.stringify(userEqPresets));
+}
+
+function slugifyPresetId(name) {
+  const slug = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'preset';
+}
+
+function resolveUniquePresetId(baseId, keepId) {
+  const seed = slugifyPresetId(baseId);
+  let candidate = seed;
+  let index = 2;
+
+  while (
+    candidate === 'custom'
+    || Boolean(EQ_PRESETS[candidate])
+    || (Boolean(userEqPresets[candidate]) && candidate !== keepId)
+  ) {
+    candidate = `${seed}-${index}`;
+    index += 1;
+  }
+
+  return candidate;
+}
+
+function getEqPresetById(id) {
+  if (!id || id === 'custom') return null;
+  return EQ_PRESETS[id] || userEqPresets[id] || null;
+}
+
+function renderPresetOptions(selectedId) {
+  const select = qs('#presetSelect');
+  if (!select) return;
+
+  const safeSelected = String(selectedId || savedEq.preset || 'custom');
+  const userEntries = Object.entries(userEqPresets)
+    .sort((a, b) => a[1].name.localeCompare(b[1].name));
+
+  const defaultOptions = ['custom', 'flat', 'bass', 'clarity'].map((id) => (
+    `<option value="${id}">${escapeHtml(EQ_PRESET_LABELS[id] || id)}</option>`
+  ));
+
+  const userOptions = userEntries.map(([id, preset]) => (
+    `<option value="${escapeHtml(id)}">${escapeHtml(preset.name)}</option>`
+  ));
+
+  select.innerHTML = [
+    ...defaultOptions,
+    ...(userOptions.length ? ['<option value="__separator" disabled>────────</option>'] : []),
+    ...userOptions
+  ].join('');
+
+  const isValidSelected = safeSelected === 'custom' || Boolean(getEqPresetById(safeSelected));
+  select.value = isValidSelected ? safeSelected : 'custom';
+}
+
+function saveCurrentPreset() {
+  const currentId = String(savedEq.preset || '');
+  const currentUserPreset = userEqPresets[currentId] || null;
+  const defaultName = currentUserPreset?.name || '';
+  const rawName = window.prompt('Save preset as:', defaultName || 'My Preset');
+  if (rawName === null) return;
+
+  const name = rawName.trim();
+  if (!name) {
+    showToast('Preset name is empty.');
+    return;
+  }
+
+  const shouldOverwriteCurrent = Boolean(
+    currentUserPreset
+    && currentUserPreset.name.toLowerCase() === name.toLowerCase()
+  );
+
+  const targetId = shouldOverwriteCurrent
+    ? currentId
+    : resolveUniquePresetId(name);
+
+  userEqPresets[targetId] = {
+    name,
+    gains: savedEq.gains.slice(0, eqFrequencies.length),
+    effects: savedEq.effects.slice(0, 5)
+  };
+
+  persistUserEqPresets();
+  savedEq.preset = targetId;
+  savedEq.isOn = true;
+  persistEq();
+  syncEqControls();
+  showToast(`Preset "${name}" saved.`);
 }
 
 function setAuthView(isLoggedIn) {
@@ -463,7 +592,7 @@ function renderEq() {
         <div class="eq-track-zone">
           <div class="eq-vline"></div>
           <span class="eq-dot" style="--gain-pct:${gainPercent}%"></span>
-          <input type="range" class="eq-range" min="${EQ_MIN_GAIN}" max="${EQ_MAX_GAIN}" step="0.1" value="${gain}" data-idx="${i}" ${savedEq.isOn ? '' : 'disabled'}>
+          <input type="range" class="eq-range" min="${EQ_MIN_GAIN}" max="${EQ_MAX_GAIN}" step="0.1" value="${gain}" data-idx="${i}">
         </div>
         <div class="eq-hz">${escapeHtml(formatFrequencyLabel(eqLabels[i]))}</div>
         <div class="eq-knob" style="--knob-pct:${knobPercent}%"><span></span></div>
@@ -517,16 +646,17 @@ function syncEqControls() {
   if (powerBtn) {
     powerBtn.classList.toggle('off', !savedEq.isOn);
     powerBtn.setAttribute('aria-pressed', savedEq.isOn ? 'true' : 'false');
+    powerBtn.title = savedEq.isOn ? 'FxSound ON' : 'FxSound OFF';
+    const stateLabel = powerBtn.querySelector('.fx-power-state');
+    if (stateLabel) stateLabel.textContent = savedEq.isOn ? 'ON' : 'OFF';
   }
 
-  const preset = qs('#presetSelect');
-  if (preset) preset.value = EQ_PRESETS[savedEq.preset] ? savedEq.preset : 'custom';
+  renderPresetOptions(savedEq.preset);
 
   [['#fxClarity', 0], ['#fxAmbience', 1], ['#fxSurround', 2], ['#fxDynamic', 3], ['#fxBass', 4]].forEach(([sel, i]) => {
     const input = qs(sel);
     if (!input) return;
     input.value = String(savedEq.effects[i]);
-    input.disabled = !savedEq.isOn;
   });
 
   renderEq();
@@ -534,16 +664,27 @@ function syncEqControls() {
 }
 
 function applyPreset(name) {
-  const preset = EQ_PRESETS[name];
+  if (!name || name === 'custom') {
+    savedEq.preset = 'custom';
+    persistEq();
+    syncEqControls();
+    return;
+  }
+
+  const preset = getEqPresetById(name);
   if (!preset) {
     savedEq.preset = 'custom';
     persistEq();
     syncEqControls();
     return;
   }
-  savedEq.gains = preset.gains.slice();
-  savedEq.effects = preset.effects.slice();
+
+  savedEq.gains = preset.gains.slice(0, eqFrequencies.length);
+  while (savedEq.gains.length < eqFrequencies.length) savedEq.gains.push(0);
+  savedEq.effects = preset.effects.slice(0, 5);
+  while (savedEq.effects.length < 5) savedEq.effects.push(0);
   savedEq.preset = name;
+  savedEq.isOn = true;
   persistEq();
   syncEqControls();
 }
@@ -1197,7 +1338,15 @@ function bindUiEvents() {
     audio.currentTime = (Number(e.target.value) / 100) * audio.duration;
   });
 
-  qs('#presetSelect')?.addEventListener('change', (e) => applyPreset(e.target.value));
+  qs('#presetSelect')?.addEventListener('change', (e) => {
+    const next = String(e.target.value || '');
+    if (next === '__separator') {
+      renderPresetOptions(savedEq.preset);
+      return;
+    }
+    applyPreset(next);
+  });
+  qs('#savePresetBtn')?.addEventListener('click', saveCurrentPreset);
 
   [['#fxClarity', 0], ['#fxAmbience', 1], ['#fxSurround', 2], ['#fxDynamic', 3], ['#fxBass', 4]].forEach(([sel, idx]) => {
     qs(sel)?.addEventListener('input', (e) => {
@@ -1372,6 +1521,7 @@ async function init() {
 }
 
 init();
+
 
 
 
