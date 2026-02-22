@@ -809,9 +809,9 @@ body {
 
 .eq-curve-svg {
   position: absolute;
-  left: 20px;
+  left: 10px;
   top: 24px;
-  width: calc(100% - 40px);
+  width: calc(100% - 20px);
   height: 176px;
   pointer-events: none;
   z-index: 1;
@@ -979,7 +979,16 @@ body {
   transform: scale(1.02);
 }
 
-.fx-main-power svg {
+.fx-main-power.on {
+  box-shadow: 0 0 0 8px rgba(5, 5, 7, 0.6), 0 14px 28px rgba(0, 0, 0, 0.55), 0 0 20px rgba(240, 51, 85, 0.35);
+}
+
+.fx-power-icon {
+  display: grid;
+  place-items: center;
+}
+
+.fx-power-icon svg {
   width: 34px;
   height: 34px;
 }
@@ -996,7 +1005,7 @@ body {
   box-shadow: 0 0 0 8px rgba(5, 5, 7, 0.45);
 }
 
-.fx-main-power.off svg {
+.fx-main-power.off .fx-power-icon svg {
   opacity: 0.7;
 }
 
@@ -1314,11 +1323,13 @@ input[type="range"]:disabled {
     border-width: 8px;
   }
 
-  .fx-main-power svg {
+  .fx-power-icon svg {
     width: 32px;
     height: 32px;
   }
 }
+
+
 
 
 
