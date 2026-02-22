@@ -1,20 +1,86 @@
 <!doctype html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b1220">
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>KingPin Music</title>
-    <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-    <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-</head>
-<body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-</body>
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">KingPin Music</div>
+        <div class="search">
+          <input id="searchInput" type="text" placeholder="Search songs, artist, album" />
+        </div>
+        <div class="userbox">
+          <span id="userEmail">Not signed in</span>
+          <button id="logoutBtn" class="btn ghost hidden">Logout</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="sidebar">
+          <button class="nav active" data-view="library">Library</button>
+          <button class="nav" data-view="liked">Liked</button>
+          <button class="nav" data-view="recent">Recent</button>
+          <button class="nav" data-view="playlists">Playlists</button>
+          <button class="nav" data-view="queue">Queue</button>
+          <div class="upload">
+            <label class="file">
+              <input id="fileInput" type="file" multiple accept="audio/*" />
+              Choose audio (multi)
+            </label>
+            <button id="uploadBtn" class="btn primary">Upload</button>
+          </div>
+          <button id="loginBtn" class="btn primary">Login with Google</button>
+        </aside>
+
+        <section class="content">
+          <div id="viewTitle" class="view-title">Library</div>
+          <div id="viewContent"></div>
+        </section>
+      </main>
+
+      <footer class="player">
+        <div class="now">
+          <div id="nowTitle">No song</div>
+          <div id="nowSub">—</div>
+        </div>
+        <div class="controls">
+          <button id="prevBtn" class="btn ghost">Prev</button>
+          <button id="playBtn" class="btn primary">Play</button>
+          <button id="nextBtn" class="btn ghost">Next</button>
+          <button id="eqBtn" class="btn ghost">EQ</button>
+        </div>
+        <div class="volume">
+          <input id="volume" type="range" min="0" max="100" value="100" />
+        </div>
+      </footer>
+    </div>
+
+    <div id="eqModal" class="modal hidden">
+      <div class="card">
+        <h3>Equalizer</h3>
+        <div class="eq-grid">
+          <label>60 Hz <input data-band="0" type="range" min="-12" max="12" step="1" value="0" /></label>
+          <label>230 Hz <input data-band="1" type="range" min="-12" max="12" step="1" value="0" /></label>
+          <label>910 Hz <input data-band="2" type="range" min="-12" max="12" step="1" value="0" /></label>
+          <label>3.6 kHz <input data-band="3" type="range" min="-12" max="12" step="1" value="0" /></label>
+          <label>14 kHz <input data-band="4" type="range" min="-12" max="12" step="1" value="0" /></label>
+        </div>
+        <div class="modal-actions">
+          <button id="eqClose" class="btn ghost">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+  </body>
 </html>
+
 
 
 
