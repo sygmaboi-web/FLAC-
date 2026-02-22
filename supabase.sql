@@ -57,7 +57,7 @@ alter table playlist_tracks enable row level security;
 alter table favorites enable row level security;
 alter table recently_played enable row level security;
 
--- Policies
+-- Policies for Tables
 create policy "songs_owner_read" on songs
   for select using (auth.uid() = owner_id);
 create policy "songs_owner_write" on songs
@@ -95,6 +95,21 @@ create policy "favorites_owner" on favorites
 create policy "recent_owner" on recently_played
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- Storage buckets (create in dashboard)
--- user-audio bucket: set PUBLIC = false or true (recommended: true for simplicity in this minimal setup)
--- If public, you can use public URL; if private, client uses createSignedUrl.
+-- ==========================================
+-- STORAGE BUCKETS & POLICIES (BARU DITAMBAH)
+-- ==========================================
+
+-- Buat bucket user-audio kalau belum ada
+insert into storage.buckets (id, name, public) 
+values ('user-audio', 'user-audio', false) 
+on conflict do nothing;
+
+-- Buka akses file storage biar user cuma bisa akses/upload/delete lagunya sendiri
+create policy "Give users access to own folder 1qaz" on storage.objects 
+  for select using ( bucket_id = 'user-audio' and auth.uid()::text = (storage.foldername(name))[2] );
+
+create policy "Give users access to own folder 2wsx" on storage.objects 
+  for insert with check ( bucket_id = 'user-audio' and auth.uid()::text = (storage.foldername(name))[2] );
+
+create policy "Give users access to own folder 3edc" on storage.objects 
+  for delete using ( bucket_id = 'user-audio' and auth.uid()::text = (storage.foldername(name))[2] );
