@@ -2,6 +2,7 @@ import { config } from '../config.js';
 
 const DEFAULT_MODEL = 'gemini-1.5-flash';
 const FALLBACK_MODELS = ['gemini-1.5-flash-001', 'gemini-1.5-flash-8b', 'gemini-1.0-pro'];
+let cachedModel = null;
 
 const buildPrompt = ({ filename, existing }) => {
   return [
@@ -33,7 +34,27 @@ export const geminiClient = {
 
     const prompt = buildPrompt({ filename, existing });
 
-    const modelsToTry = [model, ...FALLBACK_MODELS.filter(item => item !== model)];
+    const modelsToTry = [];
+    if (cachedModel) modelsToTry.push(cachedModel);
+    modelsToTry.push(model, ...FALLBACK_MODELS.filter(item => item !== model));
+
+    if (!cachedModel) {
+      try {
+        const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+        const listResponse = await fetch(listUrl);
+        if (listResponse.ok) {
+          const listData = await listResponse.json();
+          const modelFromApi = (listData.models || []).find(item => (item.supportedGenerationMethods || []).includes('generateContent'));
+          if (modelFromApi?.name) {
+            cachedModel = modelFromApi.name.replace(/^models\//, '');
+            modelsToTry.unshift(cachedModel);
+          }
+        }
+      } catch {
+        // ignore listModels failure, fallback to static list
+      }
+    }
+
     let lastError = null;
 
     for (const candidate of modelsToTry) {
@@ -72,4 +93,5 @@ export const geminiClient = {
     throw new Error(`Gemini error: ${lastError || 'model not found'}`);
   }
 };
+
 
