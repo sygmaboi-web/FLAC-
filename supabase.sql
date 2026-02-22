@@ -1,8 +1,11 @@
--- Create tables
+-- Core extension
 create extension if not exists "uuid-ossp";
 
+-- ==========================================
+-- TABLES
+-- ==========================================
 create table if not exists songs (
-  id uuid primary key,
+  id uuid primary key default uuid_generate_v4(),
   owner_id uuid not null,
   title text not null,
   artist text,
@@ -50,66 +53,140 @@ create table if not exists recently_played (
   source text
 );
 
--- Enable RLS
+-- ==========================================
+-- RLS
+-- ==========================================
 alter table songs enable row level security;
 alter table playlists enable row level security;
 alter table playlist_tracks enable row level security;
 alter table favorites enable row level security;
 alter table recently_played enable row level security;
 
--- Policies for Tables
+-- songs
+drop policy if exists "songs_owner_read" on songs;
 create policy "songs_owner_read" on songs
   for select using (auth.uid() = owner_id);
+
+drop policy if exists "songs_owner_write" on songs;
 create policy "songs_owner_write" on songs
   for insert with check (auth.uid() = owner_id);
+
+drop policy if exists "songs_owner_update" on songs;
 create policy "songs_owner_update" on songs
   for update using (auth.uid() = owner_id);
+
+drop policy if exists "songs_owner_delete" on songs;
 create policy "songs_owner_delete" on songs
   for delete using (auth.uid() = owner_id);
 
+-- playlists
+drop policy if exists "playlists_owner_read" on playlists;
 create policy "playlists_owner_read" on playlists
   for select using (auth.uid() = owner_id or is_public = true);
+
+drop policy if exists "playlists_owner_write" on playlists;
 create policy "playlists_owner_write" on playlists
   for insert with check (auth.uid() = owner_id);
+
+drop policy if exists "playlists_owner_update" on playlists;
 create policy "playlists_owner_update" on playlists
   for update using (auth.uid() = owner_id);
+
+drop policy if exists "playlists_owner_delete" on playlists;
 create policy "playlists_owner_delete" on playlists
   for delete using (auth.uid() = owner_id);
 
+-- playlist_tracks
+drop policy if exists "playlist_tracks_owner_read" on playlist_tracks;
 create policy "playlist_tracks_owner_read" on playlist_tracks
   for select using (
-    exists(select 1 from playlists p where p.id = playlist_tracks.playlist_id and (p.owner_id = auth.uid() or p.is_public = true))
+    exists (
+      select 1
+      from playlists p
+      where p.id = playlist_tracks.playlist_id
+        and (p.owner_id = auth.uid() or p.is_public = true)
+    )
   );
+
+drop policy if exists "playlist_tracks_owner_write" on playlist_tracks;
 create policy "playlist_tracks_owner_write" on playlist_tracks
   for insert with check (
-    exists(select 1 from playlists p where p.id = playlist_tracks.playlist_id and p.owner_id = auth.uid())
+    exists (
+      select 1
+      from playlists p
+      where p.id = playlist_tracks.playlist_id
+        and p.owner_id = auth.uid()
+    )
   );
+
+drop policy if exists "playlist_tracks_owner_delete" on playlist_tracks;
 create policy "playlist_tracks_owner_delete" on playlist_tracks
   for delete using (
-    exists(select 1 from playlists p where p.id = playlist_tracks.playlist_id and p.owner_id = auth.uid())
+    exists (
+      select 1
+      from playlists p
+      where p.id = playlist_tracks.playlist_id
+        and p.owner_id = auth.uid()
+    )
   );
 
+-- favorites
+drop policy if exists "favorites_owner" on favorites;
 create policy "favorites_owner" on favorites
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
+-- recently_played
+drop policy if exists "recent_owner" on recently_played;
 create policy "recent_owner" on recently_played
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 -- ==========================================
--- STORAGE BUCKETS & POLICIES (BARU DITAMBAH)
+-- STORAGE (BUCKET + POLICIES)
 -- ==========================================
+-- Object path format expected by policies:
+--   <auth.uid()>/<filename>
+insert into storage.buckets (id, name, public)
+values ('user-audio', 'user-audio', false)
+on conflict (id) do update
+set
+  name = excluded.name,
+  public = excluded.public;
 
--- Buat bucket user-audio kalau belum ada
-insert into storage.buckets (id, name, public) 
-values ('user-audio', 'user-audio', false) 
-on conflict do nothing;
+-- Read own files
+drop policy if exists "user_audio_select_own" on storage.objects;
+create policy "user_audio_select_own" on storage.objects
+  for select using (
+    bucket_id = 'user-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
 
--- Buka akses file storage biar user cuma bisa akses/upload/delete lagunya sendiri
-create policy "Give users access to own folder 1qaz" on storage.objects 
-  for select using ( bucket_id = 'user-audio' and auth.uid()::text = (storage.foldername(name))[2] );
+-- Upload own files
+drop policy if exists "user_audio_insert_own" on storage.objects;
+create policy "user_audio_insert_own" on storage.objects
+  for insert with check (
+    bucket_id = 'user-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
 
-create policy "Give users access to own folder 2wsx" on storage.objects 
-  for insert with check ( bucket_id = 'user-audio' and auth.uid()::text = (storage.foldername(name))[2] );
+-- Update own files
+drop policy if exists "user_audio_update_own" on storage.objects;
+create policy "user_audio_update_own" on storage.objects
+  for update using (
+    bucket_id = 'user-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  )
+  with check (
+    bucket_id = 'user-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
 
-create policy "Give users access to own folder 3edc" on storage.objects 
-  for delete using ( bucket_id = 'user-audio' and auth.uid()::text = (storage.foldername(name))[2] );
+-- Delete own files
+drop policy if exists "user_audio_delete_own" on storage.objects;
+create policy "user_audio_delete_own" on storage.objects
+  for delete using (
+    bucket_id = 'user-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
