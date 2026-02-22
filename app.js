@@ -10,23 +10,15 @@ const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
 const eqLabels = ['101', '240', '397', '735', '1.3k', '2.5k', '4.6k', '11k', '16k'];
 const LOOP_TITLES = ['Repeat off', 'Repeat all', 'Repeat one'];
-const EQ_GRID_MARKUP = [
-  '<div class="eq-grid-line"></div>',
-  '<div class="eq-grid-line"></div>',
-  '<div class="eq-grid-line"></div>',
-  '<div class="eq-grid-line center"></div>',
-  '<div class="eq-grid-line"></div>',
-  '<div class="eq-grid-line"></div>',
-  '<div class="eq-grid-line"></div>'
-].join('');
+const EQ_MIN_GAIN = -12;
+const EQ_MAX_GAIN = 12;
+const EQ_CHART_HEIGHT = 176;
 
 const EQ_PRESETS = {
-  flat: { gains: [0, 0, 0, 0, 0, 0, 0, 0, 0], effects: [0, 0, 0, 0] },
-  bass: { gains: [4, 3, 2, 1, 0, -1, -2, -2, -3], effects: [10, 15, 25, 40] },
-  clarity: { gains: [-2, -1, 0, 2, 3, 4, 5, 4, 3], effects: [45, 10, 20, 10] }
+  flat: { gains: [0, 0, 0, 0, 0, 0, 0, 0, 0], effects: [0, 0, 0, 0, 0] },
+  bass: { gains: [4, 3, 2, 1, 0, -1, -2, -2, -3], effects: [10, 10, 15, 25, 40] },
+  clarity: { gains: [-2, -1, 0, 2, 3, 4, 5, 4, 3], effects: [45, 10, 25, 20, 10] }
 };
-const DOWNLOADER_BRIDGE_URL = 'http://127.0.0.1:4317/api/download';
-const DOWNLOADER_DEFAULT_STATUS = 'Bridge: offline';
 
 const state = {
   user: null,
@@ -57,6 +49,7 @@ let wetGainNode = null;
 let bassNode = null;
 let clarityNode = null;
 let dynamicNode = null;
+let ambienceDelayNode = null;
 let ambienceGainNode = null;
 let bands = [];
 let histogramStarted = false;
@@ -101,122 +94,6 @@ function showToast(message) {
   }, 2600);
 }
 
-function setDownloaderStatus(message, tone = '') {
-  const status = qs('#downloaderStatus');
-  if (!status) return;
-  status.textContent = message;
-  status.classList.remove('ok', 'warn');
-  if (tone === 'ok' || tone === 'warn') status.classList.add(tone);
-}
-
-function normalizeDownloadMode(value) {
-  return value === 'playlist' ? 'playlist' : 'single';
-}
-
-function isYouTubeUrl(value) {
-  return /^https?:\/\/(?:[\w-]+\.)?(?:youtube\.com|youtu\.be)\//i.test(String(value || '').trim());
-}
-
-function parsePositiveInteger(value) {
-  const parsed = Number.parseInt(String(value || '').trim(), 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function collectDownloaderInput() {
-  return {
-    url: String(qs('#ytUrlInput')?.value || '').trim(),
-    mode: normalizeDownloadMode(qs('#downloadMode')?.value),
-    playlistStart: parsePositiveInteger(qs('#playlistStartInput')?.value),
-    playlistEnd: parsePositiveInteger(qs('#playlistEndInput')?.value)
-  };
-}
-
-function validateDownloaderInput(payload) {
-  if (!payload.url) return 'Paste YouTube URL first.';
-  if (!isYouTubeUrl(payload.url)) return 'URL must be a valid YouTube song or playlist link.';
-  if (payload.mode !== 'playlist' && (payload.playlistStart || payload.playlistEnd)) {
-    return 'Playlist range can only be used in playlist mode.';
-  }
-  if (payload.playlistStart && payload.playlistEnd && payload.playlistEnd < payload.playlistStart) {
-    return 'Playlist end must be >= playlist start.';
-  }
-  return null;
-}
-
-function toPowerShellQuoted(value) {
-  return `'${String(value || '').replaceAll("'", "''")}'`;
-}
-
-function buildDownloaderCommand(payload) {
-  const cmd = [
-    'powershell -ExecutionPolicy Bypass',
-    '-File .\\tools\\download-youtube-flac.ps1',
-    '-Url', toPowerShellQuoted(payload.url)
-  ];
-  if (payload.mode === 'playlist') cmd.push('-Playlist');
-  if (payload.mode === 'playlist' && payload.playlistStart) cmd.push('-PlaylistStart', String(payload.playlistStart));
-  if (payload.mode === 'playlist' && payload.playlistEnd) cmd.push('-PlaylistEnd', String(payload.playlistEnd));
-  return cmd.join(' ');
-}
-
-function syncDownloaderControls() {
-  const isPlaylist = normalizeDownloadMode(qs('#downloadMode')?.value) === 'playlist';
-  qs('#playlistRangeRow')?.classList.toggle('hidden', !isPlaylist);
-}
-
-async function copyToClipboard(text) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return true;
-  }
-
-  const area = document.createElement('textarea');
-  area.value = text;
-  area.setAttribute('readonly', 'readonly');
-  area.style.position = 'absolute';
-  area.style.left = '-9999px';
-  document.body.appendChild(area);
-  area.select();
-  const copied = document.execCommand('copy');
-  document.body.removeChild(area);
-  return copied;
-}
-
-async function sendDownloadToBridge(payload) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
-
-  try {
-    const response = await fetch(DOWNLOADER_BRIDGE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || `Bridge request failed (${response.status})`);
-    }
-    return data;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function probeDownloaderBridge() {
-  try {
-    const response = await fetch('http://127.0.0.1:4317/api/health');
-    if (!response.ok) throw new Error(`Health check failed (${response.status})`);
-    const data = await response.json().catch(() => ({}));
-    const runningJobs = Number(data?.runningJobs) || 0;
-    const suffix = runningJobs > 0 ? ` (${runningJobs} running)` : '';
-    setDownloaderStatus(`Bridge: online${suffix}`, 'ok');
-  } catch {
-    setDownloaderStatus(DOWNLOADER_DEFAULT_STATUS);
-  }
-}
-
 function loadQueue() {
   try {
     const parsed = JSON.parse(localStorage.getItem('kp_queue') || '[]');
@@ -232,10 +109,12 @@ function persistQueue() {
 
 function normalizeEqSettings(input) {
   const src = input && typeof input === 'object' ? input : {};
-  const gains = Array.isArray(src.gains) ? src.gains.slice(0, eqFrequencies.length).map((v) => Number(v) || 0) : [];
+  const gains = Array.isArray(src.gains)
+    ? src.gains.slice(0, eqFrequencies.length).map((v) => clamp(Number(v) || 0, EQ_MIN_GAIN, EQ_MAX_GAIN))
+    : [];
   while (gains.length < eqFrequencies.length) gains.push(0);
-  const effects = Array.isArray(src.effects) ? src.effects.slice(0, 4).map((v) => clamp(Number(v) || 0, 0, 100)) : [];
-  while (effects.length < 4) effects.push(0);
+  const effects = Array.isArray(src.effects) ? src.effects.slice(0, 5).map((v) => clamp(Number(v) || 0, 0, 100)) : [];
+  while (effects.length < 5) effects.push(0);
   return { gains, effects, isOn: src.isOn !== false, preset: typeof src.preset === 'string' ? src.preset : 'flat' };
 }
 
@@ -444,7 +323,7 @@ function initAudioDSP() {
   bassNode = audioCtx.createBiquadFilter();
   clarityNode = audioCtx.createBiquadFilter();
   dynamicNode = audioCtx.createDynamicsCompressor();
-  const ambienceNode = audioCtx.createDelay();
+  ambienceDelayNode = audioCtx.createDelay();
   ambienceGainNode = audioCtx.createGain();
   const masterNode = audioCtx.createGain();
 
@@ -452,7 +331,7 @@ function initAudioDSP() {
   bassNode.frequency.value = 80;
   clarityNode.type = 'highshelf';
   clarityNode.frequency.value = 5000;
-  ambienceNode.delayTime.value = 0.05;
+  ambienceDelayNode.delayTime.value = 0.05;
 
   bands = eqFrequencies.map((freq, i) => {
     const f = audioCtx.createBiquadFilter();
@@ -478,8 +357,8 @@ function initAudioDSP() {
   });
 
   tailNode.connect(masterNode);
-  tailNode.connect(ambienceNode);
-  ambienceNode.connect(ambienceGainNode);
+  tailNode.connect(ambienceDelayNode);
+  ambienceDelayNode.connect(ambienceGainNode);
   ambienceGainNode.connect(masterNode);
   masterNode.connect(analyser);
   analyser.connect(audioCtx.destination);
@@ -492,23 +371,24 @@ function initAudioDSP() {
 }
 
 function applyDSP() {
-  if (!audioCtx || !dryGainNode || !wetGainNode || !clarityNode || !ambienceGainNode || !dynamicNode || !bassNode) return;
+  if (!audioCtx || !dryGainNode || !wetGainNode || !clarityNode || !ambienceGainNode || !ambienceDelayNode || !dynamicNode || !bassNode) return;
   dryGainNode.gain.value = savedEq.isOn ? 0 : 1;
   wetGainNode.gain.value = savedEq.isOn ? 1 : 0;
   clarityNode.gain.value = (savedEq.effects[0] / 100) * 15;
-  ambienceGainNode.gain.value = (savedEq.effects[1] / 100) * 0.5;
-  dynamicNode.ratio.value = 1 + (savedEq.effects[2] / 100) * 10;
-  bassNode.gain.value = (savedEq.effects[3] / 100) * 15;
+  ambienceGainNode.gain.value = (savedEq.effects[1] / 100) * 0.35;
+  ambienceDelayNode.delayTime.value = 0.01 + (savedEq.effects[2] / 100) * 0.09;
+  dynamicNode.ratio.value = 1 + (savedEq.effects[3] / 100) * 10;
+  bassNode.gain.value = (savedEq.effects[4] / 100) * 15;
   bands.forEach((band, i) => {
     band.gain.value = savedEq.gains[i];
   });
 }
 
 function drawHistogram() {
-  requestAnimationFrame(drawHistogram);
   const modal = qs('#eqModal');
   const canvas = qs('#histogram');
   if (!analyser || !modal || !canvas || modal.classList.contains('hidden')) return;
+  requestAnimationFrame(drawHistogram);
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   if (canvas.clientWidth > 0 && canvas.width !== canvas.clientWidth) canvas.width = canvas.clientWidth;
@@ -528,45 +408,121 @@ function drawHistogram() {
   }
 }
 
+function formatEqValue(gain) {
+  const rounded = Math.round(gain);
+  if (rounded > 0) return `+${rounded}`;
+  if (rounded === 0) return '+0';
+  return String(rounded);
+}
+
+function formatFrequencyLabel(label) {
+  return label.includes('k') ? `${label.replace('k', ' kHz')}` : `${label} Hz`;
+}
+
+function gainToPercent(gain) {
+  const normalized = clamp((clamp(gain, EQ_MIN_GAIN, EQ_MAX_GAIN) - EQ_MIN_GAIN) / (EQ_MAX_GAIN - EQ_MIN_GAIN), 0, 1);
+  return (1 - normalized) * 100;
+}
+
+function gainToKnobPercent(gain) {
+  return clamp(((clamp(gain, EQ_MIN_GAIN, EQ_MAX_GAIN) - EQ_MIN_GAIN) / (EQ_MAX_GAIN - EQ_MIN_GAIN)) * 100, 0, 100);
+}
+
+function updateEqCurvePath(container) {
+  if (!container) return;
+  const linePath = container.querySelector('.eq-line-path');
+  const fillPath = container.querySelector('.eq-fill-path');
+  if (!linePath || !fillPath) return;
+
+  const width = 1000;
+  const points = savedEq.gains.map((gain, idx) => {
+    const x = (idx / (eqFrequencies.length - 1)) * width;
+    const y = (gainToPercent(gain) / 100) * EQ_CHART_HEIGHT;
+    return { x, y };
+  });
+
+  if (!points.length) return;
+  const lineD = `M ${points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L ')}`;
+  const fillD = `${lineD} L ${width} ${EQ_CHART_HEIGHT} L 0 ${EQ_CHART_HEIGHT} Z`;
+  linePath.setAttribute('d', lineD);
+  fillPath.setAttribute('d', fillD);
+}
+
 function renderEq() {
   const cont = qs('#eqSlidersContainer');
   if (!cont) return;
 
-  cont.innerHTML = eqFrequencies.map((_, i) => `
-    <div class="eq-band">
-      <div class="eq-val">${Math.round(savedEq.gains[i])}dB</div>
-      <div class="eq-slider-container">
-        <div class="eq-grid">${EQ_GRID_MARKUP}</div>
-        <input type="range" class="eq-range" min="-12" max="12" step="0.1" value="${savedEq.gains[i]}" data-idx="${i}" ${savedEq.isOn ? '' : 'disabled'}>
-      </div>
-      <div class="eq-hz">${eqLabels[i]}</div>
-    </div>`).join('');
+  const bandsMarkup = eqFrequencies.map((_, i) => {
+    const gain = clamp(Number(savedEq.gains[i]) || 0, EQ_MIN_GAIN, EQ_MAX_GAIN);
+    const gainPercent = gainToPercent(gain).toFixed(2);
+    const knobPercent = gainToKnobPercent(gain).toFixed(2);
+
+    return `
+      <div class="eq-band">
+        <div class="eq-val">${formatEqValue(gain)}</div>
+        <div class="eq-track-zone">
+          <div class="eq-vline"></div>
+          <span class="eq-dot" style="--gain-pct:${gainPercent}%"></span>
+          <input type="range" class="eq-range" min="${EQ_MIN_GAIN}" max="${EQ_MAX_GAIN}" step="0.1" value="${gain}" data-idx="${i}" ${savedEq.isOn ? '' : 'disabled'}>
+        </div>
+        <div class="eq-hz">${escapeHtml(formatFrequencyLabel(eqLabels[i]))}</div>
+        <div class="eq-knob" style="--knob-pct:${knobPercent}%"><span></span></div>
+      </div>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div class="eq-graph-shell">
+      <svg class="eq-curve-svg" viewBox="0 0 1000 ${EQ_CHART_HEIGHT}" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="eqFillGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(240,51,85,0.55)"></stop>
+            <stop offset="100%" stop-color="rgba(240,51,85,0.02)"></stop>
+          </linearGradient>
+        </defs>
+        <path class="eq-fill-path" fill="url(#eqFillGradient)"></path>
+        <path class="eq-line-path" fill="none"></path>
+      </svg>
+      <div class="eq-bands">${bandsMarkup}</div>
+    </div>`;
 
   cont.querySelectorAll('.eq-range').forEach((input) => {
     input.addEventListener('input', (e) => {
       const idx = Number(e.target.dataset.idx);
-      savedEq.gains[idx] = Number(e.target.value);
+      const nextGain = clamp(Number(e.target.value), EQ_MIN_GAIN, EQ_MAX_GAIN);
+      savedEq.gains[idx] = nextGain;
       savedEq.preset = 'custom';
       persistEq();
       applyDSP();
-      const val = e.target.closest('.eq-band')?.querySelector('.eq-val');
-      if (val) val.textContent = `${Math.round(e.target.value)}dB`;
+
+      const band = e.target.closest('.eq-band');
+      const val = band?.querySelector('.eq-val');
+      const dot = band?.querySelector('.eq-dot');
+      const knob = band?.querySelector('.eq-knob');
+
+      if (val) val.textContent = formatEqValue(nextGain);
+      if (dot) dot.style.setProperty('--gain-pct', `${gainToPercent(nextGain).toFixed(2)}%`);
+      if (knob) knob.style.setProperty('--knob-pct', `${gainToKnobPercent(nextGain).toFixed(2)}%`);
+
       const preset = qs('#presetSelect');
       if (preset) preset.value = 'custom';
+      updateEqCurvePath(cont);
     });
   });
+
+  updateEqCurvePath(cont);
 }
 
 function syncEqControls() {
   const powerBtn = qs('#eqToggleBtn');
   if (powerBtn) {
-    powerBtn.textContent = savedEq.isOn ? 'ON' : 'OFF';
     powerBtn.classList.toggle('off', !savedEq.isOn);
+    powerBtn.setAttribute('aria-pressed', savedEq.isOn ? 'true' : 'false');
   }
+
   const preset = qs('#presetSelect');
   if (preset) preset.value = EQ_PRESETS[savedEq.preset] ? savedEq.preset : 'custom';
 
-  [['#fxClarity', 0], ['#fxAmbience', 1], ['#fxDynamic', 2], ['#fxBass', 3]].forEach(([sel, i]) => {
+  [['#fxClarity', 0], ['#fxAmbience', 1], ['#fxSurround', 2], ['#fxDynamic', 3], ['#fxBass', 4]].forEach(([sel, i]) => {
     const input = qs(sel);
     if (!input) return;
     input.value = String(savedEq.effects[i]);
@@ -1208,83 +1164,6 @@ function bindUiEvents() {
     await uploadFiles(files);
   });
 
-  qs('#downloadMode')?.addEventListener('change', syncDownloaderControls);
-  syncDownloaderControls();
-  setDownloaderStatus(DOWNLOADER_DEFAULT_STATUS);
-  probeDownloaderBridge();
-
-  qs('#ytUrlInput')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      qs('#downloadFlacBtn')?.click();
-    }
-  });
-
-  qs('#copyDownloadCmdBtn')?.addEventListener('click', async () => {
-    const payload = collectDownloaderInput();
-    const errorText = validateDownloaderInput(payload);
-    if (errorText) {
-      setDownloaderStatus(errorText, 'warn');
-      showToast(errorText);
-      return;
-    }
-
-    const command = buildDownloaderCommand(payload);
-    try {
-      const copied = await copyToClipboard(command);
-      if (copied) {
-        setDownloaderStatus('Command copied. Paste into terminal.', 'ok');
-        showToast('Download command copied.');
-      } else {
-        setDownloaderStatus('Copy blocked by browser. Copy manually from console.', 'warn');
-        console.info(command);
-        showToast('Copy failed. Command logged to console.');
-      }
-    } catch (error) {
-      console.error(error);
-      setDownloaderStatus('Copy failed. Check browser clipboard permission.', 'warn');
-      showToast('Failed to copy command.');
-    }
-  });
-
-  qs('#downloadFlacBtn')?.addEventListener('click', async () => {
-    const payload = collectDownloaderInput();
-    const errorText = validateDownloaderInput(payload);
-    if (errorText) {
-      setDownloaderStatus(errorText, 'warn');
-      showToast(errorText);
-      return;
-    }
-
-    const btn = qs('#downloadFlacBtn');
-    const originalText = btn?.textContent || 'Download';
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Starting...';
-    }
-
-    try {
-      const result = await sendDownloadToBridge(payload);
-      const job = result.jobId ? ` (job ${result.jobId})` : '';
-      setDownloaderStatus(`Bridge: running${job}`, 'ok');
-      showToast(result.message || 'FLAC download started.');
-    } catch (error) {
-      console.error(error);
-      const fallbackCommand = buildDownloaderCommand(payload);
-      const bridgeMessage = error?.name === 'AbortError'
-        ? 'Bridge timeout. Restart local bridge.'
-        : 'Bridge unavailable. Start local bridge.';
-      setDownloaderStatus(bridgeMessage, 'warn');
-      showToast('Bridge offline. Use Copy Command, then run in terminal.');
-      console.info('Fallback command:', fallbackCommand);
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = originalText;
-      }
-    }
-  });
-
   qs('#playBtn')?.addEventListener('click', togglePlayPause);
   qs('#bigPlayBtn')?.addEventListener('click', togglePlayPause);
   qs('#prevBtn')?.addEventListener('click', handlePrev);
@@ -1320,7 +1199,7 @@ function bindUiEvents() {
 
   qs('#presetSelect')?.addEventListener('change', (e) => applyPreset(e.target.value));
 
-  [['#fxClarity', 0], ['#fxAmbience', 1], ['#fxDynamic', 2], ['#fxBass', 3]].forEach(([sel, idx]) => {
+  [['#fxClarity', 0], ['#fxAmbience', 1], ['#fxSurround', 2], ['#fxDynamic', 3], ['#fxBass', 4]].forEach(([sel, idx]) => {
     qs(sel)?.addEventListener('input', (e) => {
       savedEq.effects[idx] = clamp(Number(e.target.value), 0, 100);
       savedEq.preset = 'custom';
@@ -1455,14 +1334,8 @@ function handleSignedOut() {
   if (qs('#timeTotal')) qs('#timeTotal').textContent = '0:00';
   if (qs('#progressBar')) qs('#progressBar').value = '0';
   if (qs('#searchInput')) qs('#searchInput').value = '';
-  if (qs('#ytUrlInput')) qs('#ytUrlInput').value = '';
-  if (qs('#playlistStartInput')) qs('#playlistStartInput').value = '';
-  if (qs('#playlistEndInput')) qs('#playlistEndInput').value = '';
-  if (qs('#downloadMode')) qs('#downloadMode').value = 'single';
 
   setPlayButton(false);
-  syncDownloaderControls();
-  setDownloaderStatus(DOWNLOADER_DEFAULT_STATUS);
   setAuthView(false);
   closePlaylistPicker();
   render();
@@ -1499,5 +1372,6 @@ async function init() {
 }
 
 init();
+
 
 
