@@ -64,6 +64,28 @@
           <div id="playlistList" class="playlist-list"></div>
         </div>
 
+        <div class="downloader-section card-bg">
+          <div class="section-heading">FLAC Downloader</div>
+          <div class="downloader-form">
+            <input id="ytUrlInput" type="url" class="downloader-input" placeholder="Paste YouTube song or playlist URL" />
+            <div class="downloader-row">
+              <select id="downloadMode" class="downloader-select">
+                <option value="single">Single</option>
+                <option value="playlist">Playlist</option>
+              </select>
+              <button id="downloadFlacBtn" class="btn primary btn-sm download-btn">Download</button>
+            </div>
+            <div id="playlistRangeRow" class="downloader-range-row hidden">
+              <input id="playlistStartInput" type="number" min="1" class="downloader-input" placeholder="Start #" />
+              <input id="playlistEndInput" type="number" min="1" class="downloader-input" placeholder="End #" />
+            </div>
+            <div class="downloader-row compact">
+              <button id="copyDownloadCmdBtn" class="btn ghost btn-sm">Copy Command</button>
+              <span id="downloaderStatus" class="downloader-status">Bridge: offline</span>
+            </div>
+          </div>
+        </div>
+
         <div class="sidebar-footer">
           <label class="btn ghost upload-btn"><input id="fileInput" type="file" multiple accept="audio/*" class="hidden" />Upload Audio</label>
           <div class="user-box">
@@ -173,4 +195,5 @@
     <div id="toast" class="toast hidden"></div>
   </body>
 </html>
+
 
