@@ -11,6 +11,13 @@ const NAV_ITEMS = [
 ];
 
 const EQ_FREQ_LABELS = ['101 Hz', '240 Hz', '397 Hz', '735 Hz', '1.36 kHz', '2.52 kHz', '4.67 kHz', '11.76 kHz', '16.00 kHz'];
+const FX_CONTROLS = [
+  { key: 'clarity', label: 'Clarity' },
+  { key: 'ambience', label: 'Ambience' },
+  { key: 'surround', label: 'Surround Sound' },
+  { key: 'dynamic', label: 'Dynamic Boost' },
+  { key: 'bass', label: 'Bass Boost' }
+];
 
 const toSafeCoverInitial = text => {
   const safe = String(text || '').trim();
@@ -109,20 +116,6 @@ const noticeItem = notice => `
   </div>
 `;
 
-const eqSliders = eqState => {
-  return eqState.bands
-    .map(
-      (band, index) => `
-      <label class="eq-band">
-        ${EQ_FREQ_LABELS[index]}
-        <input type="range" min="-12" max="12" step="0.5" value="${band}" data-action="eq-band" data-band-index="${index}">
-        <span>${Number(band).toFixed(1)} dB</span>
-      </label>
-    `
-    )
-    .join('');
-};
-
 const eqGraph = eqState => {
   const width = 520;
   const height = 140;
@@ -138,7 +131,7 @@ const eqGraph = eqState => {
   });
 
   return `
-    <svg viewBox="0 0 ${width} ${height}" class="eq-graph">
+    <svg viewBox="0 0 ${width} ${height}" class="eq-graph" data-action="eq-graph">
       ${eqState.bands
         .map((_, index) => {
           const x = padX + (usableW * index) / (eqState.bands.length - 1);
@@ -151,7 +144,7 @@ const eqGraph = eqState => {
           const x = padX + (usableW * index) / (eqState.bands.length - 1);
           const normalized = (Number(value) + 12) / 24;
           const y = padY + usableH - usableH * normalized;
-          return `<circle class="eq-graph-dot" cx="${x}" cy="${y}" r="5"></circle>`;
+          return `<circle class="eq-graph-dot" cx="${x}" cy="${y}" r="6" data-band-index="${index}"></circle>`;
         })
         .join('')}
     </svg>
@@ -443,23 +436,21 @@ export const renderAppView = ({ root, state, handlers }) => {
         </div>
         <div class="fx-body">
           <div class="fx-left">
-            ${['Clarity', 'Ambience', 'Surround Sound', 'Dynamic Boost', 'Bass Boost']
-              .map(
-                label => `
-              <div class="fx-side-row">
-                <span>${label}</span>
-                <div class="fx-side-track"><span class="fx-side-dot"></span></div>
-              </div>
+            ${FX_CONTROLS.map(
+              control => `
+              <label class="fx-side-row">
+                <span>${control.label}</span>
+                <input type="range" min="0" max="100" step="1" value="${state.eqState.fx?.[control.key] ?? 0}"
+                  data-action="fx-control" data-fx-key="${control.key}">
+              </label>
             `
-              )
-              .join('')}
+            ).join('')}
           </div>
           <div class="fx-right">
             <div class="fx-graph-wrap">${eqGraph(state.eqState)}</div>
             <div class="fx-band-labels">
               ${EQ_FREQ_LABELS.map(label => `<span>${label}</span>`).join('')}
             </div>
-            <div class="fx-sliders">${eqSliders(state.eqState)}</div>
           </div>
         </div>
         <div class="fx-bottom">
@@ -522,6 +513,14 @@ export const renderAppView = ({ root, state, handlers }) => {
     searchInput.dataset.bound = 'true';
   }
 
+  const eqGraphEl = root.querySelector('.eq-graph');
+  if (eqGraphEl && !eqGraphEl.dataset.bound) {
+    eqGraphEl.addEventListener('pointerdown', event => {
+      root.__appHandlers?.['eq-graph']?.(event, eqGraphEl);
+    });
+    eqGraphEl.dataset.bound = 'true';
+  }
+
   if (!root.__appBound) {
     root.addEventListener('click', event => {
       const target = event.target;
@@ -563,6 +562,7 @@ export const renderAppView = ({ root, state, handlers }) => {
     root.__appBound = true;
   }
 };
+
 
 
 
