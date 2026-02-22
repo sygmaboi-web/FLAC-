@@ -12,11 +12,16 @@ const state = {
   isShuffle: false, repeatMode: 0, openDropdown: null
 };
 
-// --- Advanced Audio DSP Engine (Tanpa crossOrigin biar gak error CORS) ---
+// --- AUDIO DSP & HISTOGRAM ENGINE ---
 const audio = new Audio();
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 const source = audioCtx.createMediaElementSource(audio);
 
+// Analyser buat Tantangan Histogram lu
+const analyser = audioCtx.createAnalyser();
+analyser.fftSize = 256;
+
+// DSP Nodes
 const bassNode = audioCtx.createBiquadFilter(); bassNode.type = 'lowshelf'; bassNode.frequency.value = 80;
 const clarityNode = audioCtx.createBiquadFilter(); clarityNode.type = 'highshelf'; clarityNode.frequency.value = 5000;
 const dynamicNode = audioCtx.createDynamicsCompressor(); dynamicNode.threshold.value = -24; dynamicNode.ratio.value = 1;
@@ -25,28 +30,24 @@ const ambienceGain = audioCtx.createGain(); ambienceGain.gain.value = 0;
 const masterGain = audioCtx.createGain();
 
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
+const eqLabels = ['101', '240', '397', '735', '1.3k', '2.5k', '4.6k', '11k', '16k'];
 
-// Handle LocalStorage format lama
 let savedEq;
 try {
   savedEq = JSON.parse(localStorage.getItem('kp_eq_settings'));
   if (!savedEq || !savedEq.gains) throw new Error("Format lama");
 } catch (e) {
-  savedEq = {
-    "gains": [0,0,0,0,0,0,0,0,0],
-    "hz": [101,240,397,735,1360,2520,4670,11760,16000],
-    "effects": [0,0,0,0]
-  };
+  savedEq = { gains: [0,0,0,0,0,0,0,0,0], effects: [0,0,0,0] };
   localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
 }
 
 const bands = eqFrequencies.map((freq, i) => {
   const filter = audioCtx.createBiquadFilter(); filter.type = 'peaking'; filter.Q.value = 1.41;
-  filter.frequency.value = savedEq.hz[i]; filter.gain.value = savedEq.gains[i];
+  filter.frequency.value = freq; filter.gain.value = savedEq.gains[i];
   return filter;
 });
 
-// Routing
+// Routing: Source -> Effects -> EQ -> Master -> Analyser -> Destination
 source.connect(bassNode);
 bassNode.connect(clarityNode);
 clarityNode.connect(dynamicNode);
@@ -56,7 +57,42 @@ lastNode.connect(masterGain);
 lastNode.connect(ambienceNode);
 ambienceNode.connect(ambienceGain);
 ambienceGain.connect(masterGain);
-masterGain.connect(audioCtx.destination);
+masterGain.connect(analyser); // Analyser nangkep suara setelah di-EQ
+analyser.connect(audioCtx.destination);
+
+// --- TANTANGAN HISTOGRAM / SPECTRUM VISUALIZER ---
+const canvas = document.getElementById('histogram');
+const canvasCtx = canvas.getContext('2d');
+const bufferLength = analyser.frequencyBinCount;
+const dataArray = new Uint8Array(bufferLength);
+
+function drawHistogram() {
+  requestAnimationFrame(drawHistogram);
+  // Biar enteng, animasi cuma jalan pas modal FxSound dibuka
+  if (qs('#eqModal').classList.contains('hidden')) return;
+
+  analyser.getByteFrequencyData(dataArray);
+  canvasCtx.fillStyle = '#0a0a0a';
+  canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const barWidth = (canvas.width / bufferLength) * 2.5;
+  let barHeight;
+  let x = 0;
+
+  for (let i = 0; i < bufferLength; i++) {
+    barHeight = dataArray[i] / 2;
+    // Warna merah FxSound nge-gradasi ngikutin tinggi bar
+    canvasCtx.fillStyle = `rgb(${barHeight + 100}, 40, 70)`;
+    canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+    x += barWidth + 1;
+  }
+}
+drawHistogram();
+
+// --- UI HELPERS & FX APPLY ---
+const qs = sel => document.querySelector(sel);
+const toast = msg => { const el = qs('#toast'); el.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3500); };
+const formatTime = seconds => { if (isNaN(seconds)) return '0:00'; const m = Math.floor(seconds / 60); const s = Math.floor(seconds % 60); return `${m}:${s.toString().padStart(2, '0')}`; };
 
 const applyEffects = () => {
   document.getElementById('fxClarity').value = savedEq.effects[0];
@@ -70,86 +106,38 @@ const applyEffects = () => {
   bassNode.gain.value = (savedEq.effects[3] / 100) * 15;
 };
 
-window.addEventListener('load', () => applyEffects());
-
-const qs = sel => document.querySelector(sel);
-const toast = msg => { const el = qs('#toast'); el.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 3000); };
-const formatTime = seconds => { if (isNaN(seconds)) return '0:00'; const m = Math.floor(seconds / 60); const s = Math.floor(seconds % 60); return `${m}:${s.toString().padStart(2, '0')}`; };
-
-const renderFxGraph = () => {
-  const container = qs('#eqGraphContainer');
-  const w = container.clientWidth || 600; const h = 200;
-  
-  let points = savedEq.gains.map((gain, i) => ({ x: (w / 10) * (i + 1), y: h / 2 - (gain * (h / 24)) }));
-
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute('class', 'fx-line');
-  svg.appendChild(path);
-
-  const drawPath = () => {
-    let d = `M 0 ${h/2} `;
-    points.forEach(p => d += `L ${p.x} ${p.y} `);
-    d += `L ${w} ${h/2}`;
-    path.setAttribute('d', d);
-  };
-
-  points.forEach((p, i) => {
-    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    circle.setAttribute('cx', p.x); circle.setAttribute('cy', p.y);
-    circle.setAttribute('r', 6); circle.setAttribute('class', 'fx-node');
-    
-    let isDragging = false;
-    circle.addEventListener('mousedown', () => isDragging = true);
-    window.addEventListener('mousemove', e => {
-      if (!isDragging) return;
-      const rect = container.getBoundingClientRect();
-      let newY = e.clientY - rect.top;
-      newY = Math.max(10, Math.min(h - 10, newY)); 
-      circle.setAttribute('cy', newY); points[i].y = newY; drawPath();
-      
-      let gain = ((h/2 - newY) / (h/2)) * 12;
-      bands[i].gain.value = gain; savedEq.gains[i] = gain;
-    });
-    window.addEventListener('mouseup', () => {
-      if (isDragging) { isDragging = false; localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq)); }
-    });
-    svg.appendChild(circle);
-  });
-  
-  drawPath(); container.innerHTML = ''; container.appendChild(svg);
-};
-
-const renderFxKnobs = () => {
-  const container = qs('#fxKnobsContainer'); container.innerHTML = '';
+// Render 9-Band Vertical Sliders (ANTI-BUG)
+const renderEqSliders = () => {
+  const container = qs('#eqSlidersContainer');
+  container.innerHTML = '';
   bands.forEach((band, i) => {
-    const wrap = document.createElement('div'); wrap.className = 'fx-band';
-    const label = document.createElement('div'); label.className = 'fx-label'; label.textContent = 'Hz';
-    const knobCont = document.createElement('div'); knobCont.className = 'fx-knob-container';
-    const pointer = document.createElement('div'); pointer.className = 'fx-knob-pointer';
-    knobCont.appendChild(pointer);
-    const valLabel = document.createElement('div'); valLabel.className = 'fx-value';
+    const wrap = document.createElement('div'); wrap.className = 'eq-band';
     
-    const updateKnob = (val) => {
-      valLabel.textContent = Math.round(val);
-      pointer.style.transform = `rotate(${(val / 20000) * 270 - 45}deg)`;
-    };
-    updateKnob(savedEq.hz[i]);
+    const valLabel = document.createElement('div'); valLabel.className = 'eq-val'; valLabel.textContent = `${Math.round(savedEq.gains[i])} dB`;
+    
+    const sliderWrap = document.createElement('div'); sliderWrap.className = 'eq-slider-wrapper';
+    const slider = document.createElement('input');
+    slider.type = 'range'; slider.min = '-12'; slider.max = '12'; slider.step = '0.1'; slider.value = savedEq.gains[i];
+    slider.className = 'eq-range';
+    
+    slider.addEventListener('input', e => {
+      const val = Number(e.target.value);
+      band.gain.value = val;
+      savedEq.gains[i] = val;
+      valLabel.textContent = `${val > 0 ? '+' : ''}${Math.round(val)} dB`;
+      localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
+    });
 
-    let isDragging = false, startY, startVal;
-    knobCont.addEventListener('mousedown', e => { isDragging = true; startY = e.clientY; startVal = savedEq.hz[i]; });
-    window.addEventListener('mousemove', e => {
-      if (!isDragging) return;
-      let val = startVal + (startY - e.clientY) * 50; 
-      val = Math.max(20, Math.min(20000, val)); 
-      updateKnob(val); band.frequency.value = val; savedEq.hz[i] = val;
-    });
-    window.addEventListener('mouseup', () => {
-      if (isDragging) { isDragging = false; localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq)); }
-    });
-    wrap.append(label, knobCont, valLabel); container.appendChild(wrap);
+    sliderWrap.appendChild(slider);
+    
+    const hzLabel = document.createElement('div'); hzLabel.className = 'eq-hz'; hzLabel.textContent = eqLabels[i];
+    
+    wrap.append(valLabel, sliderWrap, hzLabel);
+    container.appendChild(wrap);
   });
 };
+
+window.addEventListener('load', () => { applyEffects(); renderEqSliders(); });
 
 document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
   input.addEventListener('input', e => {
@@ -158,6 +146,7 @@ document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
   });
 });
 
+// --- CORE APP ---
 const loadData = async () => {
   if (!state.user) return;
   const [{ data: s }, { data: f }, { data: r }] = await Promise.all([
@@ -168,18 +157,21 @@ const loadData = async () => {
   state.songs = s || []; state.favorites = new Set((f || []).map(item => item.song_id)); state.recent = r || [];
 };
 
-// --- FIX: BLOB DOWNLOAD METHOD BIAR GAK ERROR CORS ---
+// FIX 100%: DOWNLOAD BLOB Nembus CORS
 const playSong = async (song, contextList) => {
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   if (!song?.audio_path) return;
   if (contextList) state.currentContext = contextList;
 
   try {
-    toast('Loading audio buffer... 🎧');
+    toast('Mendownload track audio... 🎧');
     
     const { data, error } = await client.storage.from('user-audio').download(song.audio_path);
-    if (error) throw error;
+    if (error) throw new Error('Akses ditolak database. Cek RLS Supabase lu!');
     
+    // Validasi kalau yang didownload itu JSON error, bukan lagu
+    if (data.type.includes('json')) throw new Error('File tidak ditemukan di Storage!');
+
     if (state.currentUrl) URL.revokeObjectURL(state.currentUrl);
     const url = URL.createObjectURL(data);
     state.currentUrl = url;
@@ -192,7 +184,10 @@ const playSong = async (song, contextList) => {
     qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
     render();
     await client.from('recently_played').insert({ user_id: state.user.id, song_id: song.id, source: 'player' });
-  } catch (err) { toast('Gagal muter lagu. Cek konsol atau koneksi internet.'); console.error(err); }
+  } catch (err) { 
+    toast(err.message || 'Gagal load lagu. RLS error atau file korup.'); 
+    console.error(err); 
+  }
 };
 
 const playNext = () => {
@@ -297,7 +292,7 @@ document.addEventListener('click', async e => {
     btn.classList.add('active'); state.view = btn.dataset.view; render(); return;
   }
 
-  if (btn.id === 'eqBtn') { renderFxGraph(); renderFxKnobs(); qs('#eqModal').classList.remove('hidden'); return; }
+  if (btn.id === 'eqBtn') { qs('#eqModal').classList.remove('hidden'); return; }
   if (btn.dataset.action === 'close-eq') return qs('#eqModal').classList.add('hidden');
   
   const action = btn.dataset.action; const id = btn.dataset.id;
