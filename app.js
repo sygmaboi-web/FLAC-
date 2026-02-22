@@ -8,7 +8,7 @@ const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.05 3
 const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>';
 
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
-const eqLabels = ['101', '240', '397', '735', '1.3k', '2.5k', '4.6k', '11k', '16k'];
+const eqLabels = ['101 Hz', '240 Hz', '397 Hz', '735 Hz', '1.36 kHz', '2.52 kHz', '4.67 kHz', '11.76 kHz', '16.00 kHz'];
 const LOOP_TITLES = ['Repeat off', 'Repeat all', 'Repeat one'];
 const EQ_MIN_GAIN = -12;
 const EQ_MAX_GAIN = 12;
@@ -545,7 +545,7 @@ function formatEqValue(gain) {
 }
 
 function formatFrequencyLabel(label) {
-  return label.includes('k') ? `${label.replace('k', ' kHz')}` : `${label} Hz`;
+  return String(label || '');
 }
 
 function gainToPercent(gain) {
@@ -571,7 +571,25 @@ function updateEqCurvePath(container) {
   });
 
   if (!points.length) return;
-  const lineD = `M ${points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L ')}`;
+
+  let lineD = '';
+  if (points.length === 1) {
+    lineD = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  } else if (points.length === 2) {
+    lineD = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)} L ${points[1].x.toFixed(2)} ${points[1].y.toFixed(2)}`;
+  } else {
+    lineD = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const cpX = points[i].x;
+      const cpY = points[i].y;
+      const endX = (points[i].x + points[i + 1].x) / 2;
+      const endY = (points[i].y + points[i + 1].y) / 2;
+      lineD += ` Q ${cpX.toFixed(2)} ${cpY.toFixed(2)} ${endX.toFixed(2)} ${endY.toFixed(2)}`;
+    }
+    const last = points[points.length - 1];
+    lineD += ` T ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+  }
+
   const fillD = `${lineD} L ${width} ${EQ_CHART_HEIGHT} L 0 ${EQ_CHART_HEIGHT} Z`;
   linePath.setAttribute('d', lineD);
   fillPath.setAttribute('d', fillD);
@@ -584,7 +602,7 @@ function renderEq() {
   const bandsMarkup = eqFrequencies.map((_, i) => {
     const gain = clamp(Number(savedEq.gains[i]) || 0, EQ_MIN_GAIN, EQ_MAX_GAIN);
     const gainPercent = gainToPercent(gain).toFixed(2);
-    const knobPercent = gainToKnobPercent(gain).toFixed(2);
+    const knobPercent = gainToKnobPercent(gain);
 
     return `
       <div class="eq-band">
@@ -595,7 +613,7 @@ function renderEq() {
           <input type="range" class="eq-range" min="${EQ_MIN_GAIN}" max="${EQ_MAX_GAIN}" step="0.1" value="${gain}" data-idx="${i}">
         </div>
         <div class="eq-hz">${escapeHtml(formatFrequencyLabel(eqLabels[i]))}</div>
-        <div class="eq-knob" style="--knob-pct:${knobPercent}%"><span></span></div>
+        <div class="eq-knob" style="--knob-pct:${knobPercent.toFixed(2)}"><span></span></div>
       </div>`;
   }).join('');
 
@@ -630,7 +648,7 @@ function renderEq() {
 
       if (val) val.textContent = formatEqValue(nextGain);
       if (dot) dot.style.setProperty('--gain-pct', `${gainToPercent(nextGain).toFixed(2)}%`);
-      if (knob) knob.style.setProperty('--knob-pct', `${gainToKnobPercent(nextGain).toFixed(2)}%`);
+      if (knob) knob.style.setProperty('--knob-pct', `${gainToKnobPercent(nextGain).toFixed(2)}`);
 
       const preset = qs('#presetSelect');
       if (preset) preset.value = 'custom';
@@ -1521,6 +1539,7 @@ async function init() {
 }
 
 init();
+
 
 
 
