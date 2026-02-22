@@ -12,21 +12,15 @@ const state = {
   isShuffle: false, repeatMode: 0, openDropdown: null
 };
 
-// --- AUDIO DSP & HISTOGRAM ENGINE ---
+// --- AUDIO DSP & HISTOGRAM ENGINE (LAZY LOAD ARCHITECTURE) ---
 const audio = new Audio();
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-const source = audioCtx.createMediaElementSource(audio);
+audio.crossOrigin = "anonymous"; // Tetap butuh buat jaga-jaga kalau nembak signed URL
 
-const analyser = audioCtx.createAnalyser();
-analyser.fftSize = 256;
-
-// DSP Nodes
-const bassNode = audioCtx.createBiquadFilter(); bassNode.type = 'lowshelf'; bassNode.frequency.value = 80;
-const clarityNode = audioCtx.createBiquadFilter(); clarityNode.type = 'highshelf'; clarityNode.frequency.value = 5000;
-const dynamicNode = audioCtx.createDynamicsCompressor(); dynamicNode.threshold.value = -24; dynamicNode.ratio.value = 1;
-const ambienceNode = audioCtx.createDelay(); ambienceNode.delayTime.value = 0.05;
-const ambienceGain = audioCtx.createGain(); ambienceGain.gain.value = 0;
-const masterGain = audioCtx.createGain();
+let audioCtx = null;
+let source = null;
+let analyser = null;
+let bassNode, clarityNode, dynamicNode, ambienceNode, ambienceGain, masterGain;
+let bands = [];
 
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
 const eqLabels = ['101', '240', '397', '735', '1.3k', '2.5k', '4.6k', '11k', '16k'];
@@ -40,32 +34,53 @@ try {
   localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
 }
 
-const bands = eqFrequencies.map((freq, i) => {
-  const filter = audioCtx.createBiquadFilter(); filter.type = 'peaking'; filter.Q.value = 1.41;
-  filter.frequency.value = freq; filter.gain.value = savedEq.gains[i];
-  return filter;
-});
+// Fungsi inisialisasi DSP HANYA saat user klik pertama kali
+const initAudioDSP = () => {
+  if (audioCtx) return; // Kalau udah jalan, jangan bikin lagi
 
-// Routing
-source.connect(bassNode);
-bassNode.connect(clarityNode);
-clarityNode.connect(dynamicNode);
-let lastNode = dynamicNode;
-bands.forEach(filter => { lastNode.connect(filter); lastNode = filter; });
-lastNode.connect(masterGain);
-lastNode.connect(ambienceNode);
-ambienceNode.connect(ambienceGain);
-ambienceGain.connect(masterGain);
-masterGain.connect(analyser); 
-analyser.connect(audioCtx.destination);
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  source = audioCtx.createMediaElementSource(audio);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
 
-// --- FIX: HISTOGRAM ANTI-SPAM ERROR ---
-let animationId = null; // Buat nyimpen ID animasi biar bisa di-stop
+  bassNode = audioCtx.createBiquadFilter(); bassNode.type = 'lowshelf'; bassNode.frequency.value = 80;
+  clarityNode = audioCtx.createBiquadFilter(); clarityNode.type = 'highshelf'; clarityNode.frequency.value = 5000;
+  dynamicNode = audioCtx.createDynamicsCompressor(); dynamicNode.threshold.value = -24; dynamicNode.ratio.value = 1;
+  ambienceNode = audioCtx.createDelay(); ambienceNode.delayTime.value = 0.05;
+  ambienceGain = audioCtx.createGain(); ambienceGain.gain.value = 0;
+  masterGain = audioCtx.createGain();
+
+  bands = eqFrequencies.map((freq, i) => {
+    const filter = audioCtx.createBiquadFilter(); filter.type = 'peaking'; filter.Q.value = 1.41;
+    filter.frequency.value = freq; filter.gain.value = savedEq.gains[i];
+    return filter;
+  });
+
+  // Routing
+  source.connect(bassNode);
+  bassNode.connect(clarityNode);
+  clarityNode.connect(dynamicNode);
+  let lastNode = dynamicNode;
+  bands.forEach(filter => { lastNode.connect(filter); lastNode = filter; });
+  lastNode.connect(masterGain);
+  lastNode.connect(ambienceNode);
+  ambienceNode.connect(ambienceGain);
+  ambienceGain.connect(masterGain);
+  masterGain.connect(analyser); 
+  analyser.connect(audioCtx.destination);
+
+  applyEffects();
+  drawHistogram(); // Nyalain histogram pas audio engine udah ready
+};
+
+// --- FIX HISTOGRAM ---
+let animationId = null;
 
 function drawHistogram() {
+  if (!analyser) return;
+
   const canvas = document.getElementById('histogram');
   if (!canvas) {
-    // Kalau canvas gak ketemu (misal HTML belum siap), stop animasi biar ga spam error
     cancelAnimationFrame(animationId);
     return;
   }
@@ -74,10 +89,9 @@ function drawHistogram() {
   const bufferLength = analyser.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
 
-  // Muter terus
   animationId = requestAnimationFrame(drawHistogram);
   
-  // Kalau modal ketutup, jangan diproses gambarnya biar CPU enteng
+  // Jangan proses kalau modal ketutup (hemat CPU)
   if (document.querySelector('#eqModal').classList.contains('hidden')) return;
 
   analyser.getByteFrequencyData(dataArray);
@@ -107,6 +121,7 @@ const formatTime = seconds => {
 };
 
 const applyEffects = () => {
+  if (!clarityNode) return; // Aman dari error pas load awal
   const c = document.getElementById('fxClarity'); if(c) c.value = savedEq.effects[0];
   const a = document.getElementById('fxAmbience'); if(a) a.value = savedEq.effects[1];
   const d = document.getElementById('fxDynamic'); if(d) d.value = savedEq.effects[2];
@@ -118,12 +133,12 @@ const applyEffects = () => {
   bassNode.gain.value = (savedEq.effects[3] / 100) * 15;
 };
 
-// Render 9-Band Vertical Sliders
+// Render 9-Band Vertical Sliders (Jalan sebelum AudioCtx nyala)
 const renderEqSliders = () => {
   const container = qs('#eqSlidersContainer');
   if(!container) return;
   container.innerHTML = '';
-  bands.forEach((band, i) => {
+  eqFrequencies.forEach((freq, i) => {
     const wrap = document.createElement('div'); wrap.className = 'eq-band';
     const valLabel = document.createElement('div'); valLabel.className = 'eq-val'; valLabel.textContent = `${Math.round(savedEq.gains[i])} dB`;
     
@@ -134,7 +149,7 @@ const renderEqSliders = () => {
     
     slider.addEventListener('input', e => {
       const val = Number(e.target.value);
-      band.gain.value = val;
+      if(bands.length > 0) bands[i].gain.value = val;
       savedEq.gains[i] = val;
       valLabel.textContent = `${val > 0 ? '+' : ''}${Math.round(val)} dB`;
       localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
@@ -148,10 +163,7 @@ const renderEqSliders = () => {
 };
 
 window.addEventListener('load', () => { 
-  applyEffects(); 
   renderEqSliders();
-  // Nyalain animasi pas web bener-bener udah beres loading
-  drawHistogram(); 
 });
 
 document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
@@ -172,8 +184,9 @@ const loadData = async () => {
   state.songs = s || []; state.favorites = new Set((f || []).map(item => item.song_id)); state.recent = r || [];
 };
 
-// FIX: DOWNLOAD BLOB Nembus CORS & Tahan Banting
+// FIX: BLOB METHOD DIPERKUAT
 const playSong = async (song, contextList) => {
+  initAudioDSP();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   if (!song?.audio_path) return;
   if (contextList) state.currentContext = contextList;
@@ -193,7 +206,6 @@ const playSong = async (song, contextList) => {
     qs('#nowTitle').textContent = song.title; qs('#nowSub').textContent = song.artist || 'Unknown';
     audio.src = url; 
     
-    // Nunggu audionya beneran siap baru diputer biar ga nyangkut
     audio.oncanplay = async () => {
       await audio.play();
       qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
@@ -223,6 +235,7 @@ const playNext = () => {
   }
 };
 audio.addEventListener('ended', playNext);
+
 const playPrev = () => {
   if (audio.currentTime > 3) { audio.currentTime = 0; return; }
   let idx = state.currentContext.findIndex(s => s.id === state.currentSong?.id);
@@ -284,7 +297,8 @@ const render = () => {
 };
 
 document.addEventListener('click', async e => {
-  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  initAudioDSP();
+  if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
   
   if (!e.target.closest('.dots-btn') && state.openDropdown) {
     state.openDropdown.classList.remove('show'); state.openDropdown = null;
@@ -332,13 +346,14 @@ document.addEventListener('click', async e => {
 });
 
 qs('#playBtn').onclick = async () => {
+  initAudioDSP();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   if (audio.paused && state.currentSong) { await audio.play(); qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`; }
   else { audio.pause(); qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.05 3.606l13.49 7.788a.7.7 0 0 1 0 1.212L7.05 20.394A.7.7 0 0 1 6 19.788V4.212a.7.7 0 0 1 1.05-.606z"/></svg>`; }
 };
 qs('#prevBtn').onclick = playPrev; qs('#nextBtn').onclick = playNext;
 qs('#progressBar').oninput = e => { if (audio.duration) audio.currentTime = (e.target.value / 100) * audio.duration; };
-qs('#volume').oninput = e => masterGain.gain.value = e.target.value / 100;
+qs('#volume').oninput = e => { if (masterGain) masterGain.gain.value = e.target.value / 100; };
 
 const checkAuthAndRenderUI = () => {
   if (state.user) { qs('#loginView').classList.add('hidden'); qs('#mainApp').classList.remove('hidden'); qs('#userEmail').textContent = state.user.email; render(); }
