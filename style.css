@@ -726,6 +726,12 @@ body {
   gap: 16px;
 }
 
+.fx-preset-col {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
 .fx-select {
   border: 1px solid #26272d;
   background: #090a0d;
@@ -744,6 +750,24 @@ body {
 
 .fx-device-select {
   width: 100%;
+}
+
+.fx-save-btn {
+  border: 1px solid #353740;
+  background: #181a1f;
+  color: #f0f0f3;
+  border-radius: 10px;
+  height: 54px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fx-save-btn:hover {
+  border-color: #4c4f5a;
+  background: #22252d;
 }
 
 .fx-layout {
@@ -925,15 +949,24 @@ body {
   border: 10px solid #050507;
   background: radial-gradient(circle at 35% 28%, #ff6c89 0%, #f03355 60%, #da2147 100%);
   color: #fff;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   cursor: pointer;
   box-shadow: 0 0 0 8px rgba(5, 5, 7, 0.6), 0 14px 28px rgba(0, 0, 0, 0.55);
 }
 
 .fx-main-power svg {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
+}
+
+.fx-power-state {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
 }
 
 .fx-main-power.off {
@@ -1199,6 +1232,10 @@ input[type="range"]:disabled {
     grid-template-columns: 1fr;
   }
 
+  .fx-preset-col {
+    grid-template-columns: 1fr;
+  }
+
   .fx-right-panel {
     overflow-x: auto;
   }
@@ -1257,6 +1294,8 @@ input[type="range"]:disabled {
     height: 32px;
   }
 }
+
+
 
 
 
