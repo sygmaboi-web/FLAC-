@@ -8,14 +8,12 @@ const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const state = {
   user: null, songs: [], favorites: new Set(), recent: [], playlists: [],
   queue: JSON.parse(localStorage.getItem('kp_queue') || '[]'),
-  currentSong: null, currentContext: [], search: '', view: 'library',
+  currentSong: null, currentUrl: null, currentContext: [], search: '', view: 'library',
   isShuffle: false, repeatMode: 0, openDropdown: null
 };
 
-// --- Advanced Audio DSP Engine ---
+// --- Advanced Audio DSP Engine (Tanpa crossOrigin biar gak error CORS) ---
 const audio = new Audio();
-audio.crossOrigin = "anonymous"; // WAJIB: Fix error CORS Web Audio API Supabase
-
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 const source = audioCtx.createMediaElementSource(audio);
 
@@ -28,6 +26,7 @@ const masterGain = audioCtx.createGain();
 
 const eqFrequencies = [101, 240, 397, 735, 1360, 2520, 4670, 11760, 16000];
 
+// Handle LocalStorage format lama
 let savedEq;
 try {
   savedEq = JSON.parse(localStorage.getItem('kp_eq_settings'));
@@ -81,10 +80,7 @@ const renderFxGraph = () => {
   const container = qs('#eqGraphContainer');
   const w = container.clientWidth || 600; const h = 200;
   
-  let points = savedEq.gains.map((gain, i) => ({
-    x: (w / 10) * (i + 1),
-    y: h / 2 - (gain * (h / 24)) 
-  }));
+  let points = savedEq.gains.map((gain, i) => ({ x: (w / 10) * (i + 1), y: h / 2 - (gain * (h / 24)) }));
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -110,13 +106,10 @@ const renderFxGraph = () => {
       const rect = container.getBoundingClientRect();
       let newY = e.clientY - rect.top;
       newY = Math.max(10, Math.min(h - 10, newY)); 
-      circle.setAttribute('cy', newY);
-      points[i].y = newY;
-      drawPath();
+      circle.setAttribute('cy', newY); points[i].y = newY; drawPath();
       
       let gain = ((h/2 - newY) / (h/2)) * 12;
-      bands[i].gain.value = gain;
-      savedEq.gains[i] = gain;
+      bands[i].gain.value = gain; savedEq.gains[i] = gain;
     });
     window.addEventListener('mouseup', () => {
       if (isDragging) { isDragging = false; localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq)); }
@@ -124,9 +117,7 @@ const renderFxGraph = () => {
     svg.appendChild(circle);
   });
   
-  drawPath();
-  container.innerHTML = '';
-  container.appendChild(svg);
+  drawPath(); container.innerHTML = ''; container.appendChild(svg);
 };
 
 const renderFxKnobs = () => {
@@ -163,9 +154,7 @@ const renderFxKnobs = () => {
 document.querySelectorAll('.fx-left-panel input').forEach((input, i) => {
   input.addEventListener('input', e => {
     let val = Number(e.target.value);
-    savedEq.effects[i] = val;
-    applyEffects();
-    localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
+    savedEq.effects[i] = val; applyEffects(); localStorage.setItem('kp_eq_settings', JSON.stringify(savedEq));
   });
 });
 
@@ -179,24 +168,31 @@ const loadData = async () => {
   state.songs = s || []; state.favorites = new Set((f || []).map(item => item.song_id)); state.recent = r || [];
 };
 
+// --- FIX: BLOB DOWNLOAD METHOD BIAR GAK ERROR CORS ---
 const playSong = async (song, contextList) => {
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   if (!song?.audio_path) return;
   if (contextList) state.currentContext = contextList;
 
   try {
-    const { data, error } = await client.storage.from('user-audio').createSignedUrl(song.audio_path, 60 * 60);
+    toast('Loading audio buffer... 🎧');
+    
+    const { data, error } = await client.storage.from('user-audio').download(song.audio_path);
     if (error) throw error;
-    if (!data?.signedUrl) throw new Error('Signed URL failed.');
+    
+    if (state.currentUrl) URL.revokeObjectURL(state.currentUrl);
+    const url = URL.createObjectURL(data);
+    state.currentUrl = url;
 
     state.currentSong = song;
     qs('#nowTitle').textContent = song.title; qs('#nowSub').textContent = song.artist || 'Unknown';
-    audio.src = data.signedUrl; 
+    audio.src = url; 
     await audio.play();
+    
     qs('#playBtn').innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.7 3a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7H5.7zm10 0a.7.7 0 0 0-.7.7v16.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V3.7a.7.7 0 0 0-.7-.7h-2.6z"/></svg>`;
     render();
     await client.from('recently_played').insert({ user_id: state.user.id, song_id: song.id, source: 'player' });
-  } catch (err) { toast('Gagal muter lagu. Cek konsol atau Storage Supabase!'); console.error(err); }
+  } catch (err) { toast('Gagal muter lagu. Cek konsol atau koneksi internet.'); console.error(err); }
 };
 
 const playNext = () => {
@@ -315,7 +311,7 @@ document.addEventListener('click', async e => {
   if (action === 'options') {
     if (state.openDropdown) state.openDropdown.classList.remove('show');
     const drop = document.getElementById(`drop-${id}`);
-    drop.classList.add('show'); state.openDropdown = drop;
+    if (drop) { drop.classList.add('show'); state.openDropdown = drop; }
   }
   if (action === 'queue') {
     state.queue.push(id); localStorage.setItem('kp_queue', JSON.stringify(state.queue));
