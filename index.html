@@ -18,43 +18,24 @@
     </div>
 
     <div id="mainApp" class="app-layout hidden">
-      
       <nav class="sidebar">
-        <div class="brand-container">
-          <h2>KingPin</h2>
-        </div>
-        
+        <div class="brand-container"><h2>KingPin</h2></div>
         <div class="nav-section card-bg">
-          <button class="nav-item active" data-view="library">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.5 3.247a1 1 0 0 0-1 0L4 7.577V20h4.5v-6a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v6H20V7.577l-7.5-4.33zm-2-1.732a3 3 0 0 1 3 0l7.5 4.33a2 2 0 0 1 1 1.732V21a1 1 0 0 1-1 1h-6.5a1 1 0 0 1-1-1v-6h-3v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7.577a2 2 0 0 1 1-1.732l7.5-4.33z"/></svg>
-            Home
-          </button>
+          <button class="nav-item active" data-view="library"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.5 3.247a1 1 0 0 0-1 0L4 7.577V20h4.5v-6a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v6H20V7.577l-7.5-4.33zm-2-1.732a3 3 0 0 1 3 0l7.5 4.33a2 2 0 0 1 1 1.732V21a1 1 0 0 1-1 1h-6.5a1 1 0 0 1-1-1v-6h-3v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7.577a2 2 0 0 1 1-1.732l7.5-4.33z"/></svg>Home</button>
           <div class="search-box">
             <svg viewBox="0 0 24 24" fill="currentColor" width="20"><path d="M10.533 1.27893C5.35215 1.27893 1.12598 5.41887 1.12598 10.5579C1.12598 15.697 5.35215 19.8369 10.533 19.8369C12.767 19.8369 14.8235 19.0671 16.4402 17.7794L20.7929 22.132C21.1834 22.5226 21.8166 22.5226 22.2071 22.132C22.5976 21.7415 22.5976 21.1083 22.2071 20.7178L17.8634 16.3741C19.1616 14.7849 19.94 12.7634 19.94 10.5579C19.94 5.41887 15.7138 1.27893 10.533 1.27893ZM3.12598 10.5579C3.12598 6.53365 6.42771 3.27893 10.533 3.27893C14.6383 3.27893 17.94 6.53365 17.94 10.5579C17.94 14.5822 14.6383 17.8369 10.533 17.8369C6.42771 17.8369 3.12598 14.5822 3.12598 10.5579Z"/></svg>
             <input id="searchInput" type="text" placeholder="Search songs..." />
           </div>
         </div>
-
         <div class="library-section card-bg">
-          <div class="lib-header">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="24"><path d="M3 22a1 1 0 0 1-1-1V3a1 1 0 0 1 2 0v18a1 1 0 0 1-1 1zM15.5 2.134A1 1 0 0 0 14 3v18a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V6.464a1 1 0 0 0-.5-.866l-6-3.464zM9 2a1 1 0 0 0-1 1v18a1 1 0 1 0 2 0V3a1 1 0 0 0-1-1z"/></svg>
-            Your Library
-          </div>
+          <div class="lib-header">Your Library</div>
           <button class="nav-item" data-view="liked">Liked Songs</button>
-          <button class="nav-item" data-view="recent">Recently Played</button>
           <button class="nav-item" data-view="playlists">Playlists</button>
           <button class="nav-item" data-view="queue">Queue</button>
         </div>
-
         <div class="sidebar-footer">
-          <label class="btn ghost upload-btn">
-            <input id="fileInput" type="file" multiple accept="audio/*" class="hidden" />
-            Upload Audio
-          </label>
-          <div class="user-box">
-            <span id="userEmail" class="truncate">User</span>
-            <button id="logoutBtn" class="btn text-only">Logout</button>
-          </div>
+          <label class="btn ghost upload-btn"><input id="fileInput" type="file" multiple accept="audio/*" class="hidden" />Upload Audio</label>
+          <div class="user-box"><span id="userEmail" class="truncate">User</span><button id="logoutBtn" class="btn text-only">Logout</button></div>
         </div>
       </nav>
 
@@ -62,14 +43,15 @@
         <div class="top-gradient"></div>
         <div class="content-header">
           <h2 id="viewTitle" class="view-title">Home</h2>
+          <button id="bigPlayBtn" class="big-play-btn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.05 3.606l13.49 7.788a.7.7 0 0 1 0 1.212L7.05 20.394A.7.7 0 0 1 6 19.788V4.212a.7.7 0 0 1 1.05-.606z"/></svg></button>
         </div>
         <div class="table-header">
-          <div class="th-title"># Title</div>
+          <div class="th-num">#</div>
+          <div class="th-title">Title</div>
           <div class="th-album">Album</div>
-          <div class="th-action">Actions</div>
+          <div class="th-duration"><svg viewBox="0 0 16 16" fill="currentColor" width="16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8z"/><path d="M8 3.25a.75.75 0 0 1 .75.75v3.25H11a.75.75 0 0 1 0 1.5H7.25V4A.75.75 0 0 1 8 3.25z"/></svg></div>
         </div>
-        <div id="viewContent" class="content-body">
-          </div>
+        <div id="viewContent" class="content-body"></div>
       </main>
 
       <footer class="player">
@@ -79,7 +61,6 @@
             <div id="nowSub" class="track-artist">—</div>
           </div>
         </div>
-        
         <div class="player-controls">
           <div class="buttons">
             <button id="shuffleBtn" class="control-btn"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.151.922a.75.75 0 1 0-1.06 1.06L13.109 3H11.16a3.75 3.75 0 0 0-2.873 1.34l-6.173 7.356A2.25 2.25 0 0 1 .39 12.5H0V14h.391a3.75 3.75 0 0 0 2.873-1.34l6.173-7.356a2.25 2.25 0 0 1 1.724-.804h1.947l-1.017 1.018a.75.75 0 0 0 1.06 1.06L15.98 3.75 13.15.922zM.391 3.5H0V2h.391c1.109 0 2.16.49 2.873 1.34L4.89 5.277l-.979 1.167-1.796-2.14A2.25 2.25 0 0 0 .39 3.5zM11.16 12.5h1.95l-1.017-1.018a.75.75 0 1 1 1.06-1.06l2.829 2.828-2.829 2.828a.75.75 0 1 1-1.06-1.06l1.018-1.018h-1.95a3.75 3.75 0 0 1-2.873-1.34l-1.623-1.933.979-1.167 1.796 2.14a2.25 2.25 0 0 0 1.724.804z"/></svg></button>
@@ -94,9 +75,8 @@
              <span id="timeTotal" class="time-text">0:00</span>
           </div>
         </div>
-
         <div class="player-right">
-          <button id="eqBtn" class="btn ghost btn-sm">EQ</button>
+          <button id="eqBtn" class="btn ghost btn-sm">FxSound</button>
           <div class="volume-bar">
             <svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M9.741.85a.75.75 0 0 1 .375.65v13a.75.75 0 0 1-1.125.65l-6.925-4a3.642 3.642 0 0 1-1.33-4.967 3.639 3.639 0 0 1 1.33-1.332l6.925-4a.75.75 0 0 1 .75 0zm-6.924 5.3a2.139 2.139 0 0 0-1.05 1.85 2.14 2.14 0 0 0 1.05 1.85l6.433 3.715V2.435L2.817 6.15z"/></svg>
             <input id="volume" type="range" min="0" max="100" value="100" />
@@ -109,16 +89,41 @@
       <div class="fx-modal">
         <div class="fx-header">
           <div class="fx-brand">
-            <svg viewBox="0 0 24 24" fill="#f03355" width="20"><path d="M3 22V8h4v14H3zm7 0V2h4v20h-4zm7 0v-8h4v8h-4z"/></svg>
-            FxSound EQ
+            <svg viewBox="0 0 24 24" fill="#f03355" width="20"><path d="M3 22V8h4v14H3zm7 0V2h4v20h-4zm7 0v-8h4v8h-4z"/></svg>FxSound
+          </div>
+          <div class="fx-presets">
+            <select id="presetSelect" class="fx-select">
+              <option value="custom">Custom Preset</option>
+              <option value="bass">Bass Boost</option>
+              <option value="clarity">High Clarity</option>
+            </select>
+            <button id="savePresetBtn" class="fx-btn-small">Save</button>
           </div>
           <button class="fx-close" data-action="close-eq">✕</button>
         </div>
-        <div class="fx-sliders" id="fxKnobsContainer">
+        
+        <div class="fx-layout">
+          <div class="fx-left-panel">
+            <div class="fx-effect">
+              <label>Clarity</label><input type="range" id="fxClarity" min="0" max="100" value="0">
+            </div>
+            <div class="fx-effect">
+              <label>Ambience</label><input type="range" id="fxAmbience" min="0" max="100" value="0">
+            </div>
+            <div class="fx-effect">
+              <label>Dynamic Boost</label><input type="range" id="fxDynamic" min="0" max="100" value="0">
+            </div>
+            <div class="fx-effect">
+              <label>Bass Boost</label><input type="range" id="fxBass" min="0" max="100" value="0">
+            </div>
           </div>
-        <div class="fx-actions">
-          <button class="fx-btn" data-action="reset-eq">Reset</button>
-          <button class="fx-btn-primary" data-action="close-eq">Done</button>
+
+          <div class="fx-right-panel">
+            <div class="fx-graph-container" id="eqGraphContainer">
+              </div>
+            <div class="fx-sliders" id="fxKnobsContainer">
+              </div>
+          </div>
         </div>
       </div>
     </div>
@@ -126,7 +131,3 @@
     <div id="toast" class="toast hidden"></div>
   </body>
 </html>
-
-
-
-
