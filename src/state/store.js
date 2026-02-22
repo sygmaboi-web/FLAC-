@@ -34,7 +34,14 @@ const initialState = {
   eqState: {
     enabled: true,
     preamp: 0,
-    bands: [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    bands: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    fx: {
+      clarity: 0,
+      ambience: 0,
+      surround: 0,
+      dynamic: 0,
+      bass: 0
+    }
   },
   eqPanelOpen: false,
   notices: []
@@ -81,4 +88,3 @@ export const resetState = () => {
   state = structuredClone(initialState);
   listeners.forEach(listener => listener(state));
 };
-
